@@ -1,0 +1,21 @@
+# Serve the COMPILED admin app through Apache while keeping clean
+# /gpt_admin/… URLs.
+#
+# Why this exists: index.html and affiliate.html at the project root are Vite
+# *build inputs* (they load /src/*.tsx, which only the Vite dev server can
+# transpile). The browser-ready, compiled app is emitted to dist/. These rules
+# internally map the clean entry URLs and their assets to dist/ so Apache serves
+# the built app — no /dist/ in the address bar, no dev server required.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /gpt_admin/
+
+    # Entry pages -> compiled versions in dist/
+    RewriteRule ^(index|affiliate)\.html$ dist/$1.html [L]
+
+    # Hashed JS/CSS bundles (built html references them as ./assets/…)
+    RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
+</IfModule>
+
+# Bare /gpt_admin/ -> compiled admin index (not the source build-input)
+DirectoryIndex dist/index.html
