@@ -6,8 +6,9 @@ import { getBackendId } from '../lib/backendConfig';
 
 export function AppPicker() {
   const { selectApp, logout, user, portfolioToken } = useAuth();
-  // PortfolioManagement and Ledger have no TypeScript backend — hide them when the TS tab is active.
-  const isTs = getBackendId() === 'ts';
+  // PortfolioManagement and Ledger have no TypeScript/Python backend — hide them when a non-PHP tab is active.
+  const backendId = getBackendId();
+  const isTs = backendId === 'ts' || backendId === 'py';
 
   return (
     <div className="h-full bg-gray-100 overflow-y-auto">

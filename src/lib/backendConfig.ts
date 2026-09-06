@@ -17,7 +17,7 @@
  * The Ledger service (src/api/ledger.ts) is a separate app and is intentionally NOT switched here.
  */
 
-export type BackendId = 'php' | 'ts';
+export type BackendId = 'php' | 'ts' | 'py';
 
 export interface BackendDef {
   id: BackendId;
@@ -29,6 +29,7 @@ export interface BackendDef {
 export const BACKENDS: Record<BackendId, BackendDef> = {
   php: { id: 'php', label: 'PHP', apiV1: '/gpt/backend/api/v1' },
   ts: { id: 'ts', label: 'TypeScript', apiV1: 'http://localhost:3001/api/v1' },
+  py: { id: 'py', label: 'Python', apiV1: 'http://localhost:3002/api/v1' },
 };
 
 const STORAGE_KEY = 'admin_backend';
@@ -42,7 +43,8 @@ const FRONTEND_STORAGE_KEY = 'API_BASE_URL';
 /** The currently selected backend id (defaults to PHP). */
 export function getBackendId(): BackendId {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'ts' ? 'ts' : 'php';
+    const v = localStorage.getItem(STORAGE_KEY);
+    return v === 'ts' || v === 'py' ? v : 'php';
   } catch {
     return 'php';
   }
