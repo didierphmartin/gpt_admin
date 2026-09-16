@@ -35,10 +35,13 @@ export const BACKENDS: Record<BackendId, BackendDef> = {
 const STORAGE_KEY = 'admin_backend';
 
 /**
- * The override key the gpt frontend (api-config.js) reads to pick its backend base.
- * Same-origin localStorage, so setting it here repoints the frontend too.
+ * The gpt frontend (api-config.js) picks its backend from localStorage 'BACKEND_KIND'
+ * ('php' | 'node' | 'python'); an 'API_BASE_URL' entry is a manual override that wins over
+ * the kind. Same-origin localStorage, so writing the kind here repoints the frontend too.
  */
-const FRONTEND_STORAGE_KEY = 'API_BASE_URL';
+const FRONTEND_KIND_KEY = 'BACKEND_KIND';
+const FRONTEND_OVERRIDE_KEY = 'API_BASE_URL';
+const FRONTEND_KIND: Record<BackendId, 'php' | 'node' | 'python'> = { php: 'php', ts: 'node', py: 'python' };
 
 /** The currently selected backend id (defaults to PHP). */
 export function getBackendId(): BackendId {
@@ -56,13 +59,16 @@ export function getBackend(): BackendDef {
 
 /**
  * Persist the selection for the admin dashboard AND repoint the gpt frontend at the same backend
- * (via its own `API_BASE_URL` override key — same origin, so localStorage is shared).
+ * by writing its `BACKEND_KIND` (same origin, so localStorage is shared). Any stale
+ * `API_BASE_URL` override is removed — it would otherwise pin the frontend to the old backend
+ * regardless of the kind chosen in either app.
  * Callers reload the page afterwards so modules re-read the base.
  */
 export function setBackendId(id: BackendId): void {
   try {
     localStorage.setItem(STORAGE_KEY, id);
-    localStorage.setItem(FRONTEND_STORAGE_KEY, BACKENDS[id].apiV1);
+    localStorage.setItem(FRONTEND_KIND_KEY, FRONTEND_KIND[id]);
+    localStorage.removeItem(FRONTEND_OVERRIDE_KEY);
   } catch {
     /* ignore storage failures */
   }
