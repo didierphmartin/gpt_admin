@@ -51,6 +51,9 @@ import { getApiV1Base } from '../lib/backendConfig';
 
 const API_BASE = getApiV1Base();
 
+/** 'unreachable' is kept distinct from 'invalid' so a stopped backend cannot end a session. */
+type VerifyResult = 'valid' | 'invalid' | 'unreachable';
+
 function getStoredToken(): string | null {
   return localStorage.getItem('token') || localStorage.getItem('voice_token') || null;
 }
@@ -115,9 +118,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   // Verify token with server
-  const verifyToken = useCallback(async (token: string): Promise<boolean> => {
+  // Three outcomes, not two. "The server rejected this token" and "I could not reach the
+  // server" both used to come back as false, and the caller deleted the session for either
+  // one — so a backend that was merely stopped silently logged the admin out, and the
+  // stored token was gone by the time the backend came back.
+  const verifyToken = useCallback(async (token: string): Promise<VerifyResult> => {
+    let response: Response;
     try {
-      const response = await fetch(`${API_BASE}/auth`, {
+      response = await fetch(`${API_BASE}/auth`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -125,10 +133,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         body: JSON.stringify({ action: 'verify' }),
       });
-      const data = await response.json();
-      return data.success === true;
     } catch {
-      return false;
+      return 'unreachable'; // network-level failure: nothing is listening
+    }
+
+    try {
+      const data = await response.json();
+      return data.success === true ? 'valid' : 'invalid';
+    } catch {
+      return 'invalid'; // the server answered, just not with a verdict we understand
     }
   }, []);
 
@@ -201,13 +214,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Verify token with server
-      const isValid = await verifyToken(token);
-      if (!isValid) {
+      const verdict = await verifyToken(token);
+      if (verdict === 'invalid') {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         setState(EMPTY_STATE);
         return;
       }
+      // 'unreachable': keep the session. Only the server can invalidate a token, and it
+      // did not get the chance — discarding it here would force a re-login for what is
+      // usually a backend someone forgot to start. BackendHealthBanner explains the
+      // state, and every real request is still authorized server-side.
 
       // If we have token but no stored user, extract from token
       const finalUser = user || (parseUserFromToken(token) as User);
