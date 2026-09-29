@@ -171,6 +171,7 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
     // unchanged. api_format must be 'router' (the backend defaults a missing
     // one to 'openai' and rejects that for a router), and model is required.
     // A blank key keeps the stored one.
+    const inputPrice = priceIn.trim() === '' ? null : Number(priceIn);
     const success = await onSave({
       provider_key: provider.provider_key,
       display_name: displayName.trim() || provider.display_name,
@@ -178,8 +179,10 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
       model: provider.model || 'jev-latest',
       max_tokens: provider.max_tokens,
       temperature: provider.temperature,
-      price_input_per_1m: priceIn.trim() === '' ? null : Number(priceIn),
-      price_output_per_1m: priceOut.trim() === '' ? null : Number(priceOut),
+      price_input_per_1m: inputPrice,
+      // Jev output tokens are free: an empty output beside a set input price is 0,
+      // not null (a null half makes the whole row read as unpriced).
+      price_output_per_1m: priceOut.trim() === '' ? (inputPrice === null ? null : 0) : Number(priceOut),
       supported_models: provider.supported_models ?? [],
       system_prompt: provider.system_prompt,
       sort_order: provider.sort_order,
@@ -240,6 +243,7 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
                 onChange={(e) => setPriceOut(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               />
+              <p className="mt-1 text-xs text-gray-500">Jev output tokens are free — keep 0.</p>
             </div>
           </div>
           <label className="flex items-center gap-2">
