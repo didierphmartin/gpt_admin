@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApiKeys } from '../hooks/useApiKeys';
-import { LLM_PROVIDERS } from '../types';
-import type { ApiKeyInfo, ApiKeySavePayload, LLMProvider, LLMProviderConfig } from '../types';
+import { LLM_PROVIDERS, ROUTER_PROVIDERS } from '../types';
+import type { ApiKeyInfo, ApiKeySavePayload, LLMProvider, LLMProviderConfig, RouterProvider } from '../types';
 import { useModelCatalog } from '../lib/modelCatalog';
 import * as api from '../api/client';
 
@@ -9,7 +9,7 @@ interface ApiKeysSettingsProps {
   userId: number;
 }
 
-const PROVIDER_INFO: Record<LLMProvider, { label: string; color: string }> = {
+const PROVIDER_INFO: Record<LLMProvider | RouterProvider, { label: string; color: string }> = {
   claude: { label: 'Claude (Anthropic)', color: 'bg-orange-100 border-orange-300' },
   openai: { label: 'OpenAI', color: 'bg-green-100 border-green-300' },
   gemini: { label: 'Gemini (Google)', color: 'bg-blue-100 border-blue-300' },
@@ -17,6 +17,7 @@ const PROVIDER_INFO: Record<LLMProvider, { label: string; color: string }> = {
   deepseek: { label: 'DeepSeek', color: 'bg-cyan-100 border-cyan-300' },
   kimi: { label: 'Kimi (Moonshot)', color: 'bg-pink-100 border-pink-300' },
   gamma4: { label: 'Gamma4', color: 'bg-yellow-100 border-yellow-300' },
+  jev: { label: 'Jev (dispatcher routing)', color: 'bg-teal-100 border-teal-300' },
 };
 
 interface FormState {
@@ -47,7 +48,7 @@ function toForm(info: ApiKeyInfo | undefined): FormState {
   };
 }
 
-function formToPayload(form: FormState, original: ApiKeyInfo | undefined): ApiKeySavePayload {
+function formToPayload(form: FormState, original: ApiKeyInfo | undefined, keyOnly: boolean): ApiKeySavePayload {
   const payload: ApiKeySavePayload = {};
   const trimmedKey = form.api_key.trim();
   // Send api_key when it changed, OR when the user has no personal key of their
@@ -58,6 +59,8 @@ function formToPayload(form: FormState, original: ApiKeyInfo | undefined): ApiKe
   if (trimmedKey && (!userHadOwnKey || trimmedKey !== (original?.api_key ?? ''))) {
     payload.api_key = trimmedKey;
   }
+  // A router key (Jev) has no model, endpoint, prompt or sampling settings.
+  if (keyOnly) return payload;
   payload.model = form.model.trim() || null;
   payload.base_url = form.base_url.trim() || null;
   payload.max_tokens = form.max_tokens.trim() === '' ? null : Number(form.max_tokens);
@@ -87,14 +90,16 @@ function applyGlobal(form: FormState, global: LLMProviderConfig): FormState {
 }
 
 interface ApiKeyCardProps {
-  provider: LLMProvider;
+  provider: LLMProvider | RouterProvider;
+  /** Router key (Jev): the card shows and saves the key only. */
+  keyOnly?: boolean;
   info: ApiKeyInfo | undefined;
   globalConfig?: LLMProviderConfig;
   onSave: (payload: ApiKeySavePayload) => Promise<boolean>;
   onDelete: () => Promise<boolean>;
 }
 
-function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCardProps) {
+function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onDelete }: ApiKeyCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState<FormState>(() => toForm(info));
   const [saving, setSaving] = useState(false);
@@ -121,7 +126,7 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
     if (form.temperature !== '' && Number.isNaN(Number(form.temperature))) return;
 
     setSaving(true);
-    const success = await onSave(formToPayload(form, info));
+    const success = await onSave(formToPayload(form, info, keyOnly));
     setSaving(false);
     if (success) setIsEditing(false);
   };
@@ -202,6 +207,7 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
             </div>
           </Field>
 
+          {!keyOnly && (<>
           <Field label="Model" hint="Pick from suggestions or type a custom value">
             <input
               type="text"
@@ -279,6 +285,7 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
             <Toggle label="Streaming" checked={form.streaming} onChange={(v) => update('streaming', v)} />
             <Toggle label="Supports Tools" checked={form.supports_tools} onChange={(v) => update('supports_tools', v)} />
           </div>
+          </>)}
 
           <div className="flex flex-wrap gap-2 pt-2">
             <button
@@ -294,7 +301,7 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
             >
               Cancel
             </button>
-            <button
+            {!keyOnly && <button
               type="button"
               onClick={() => globalConfig && setForm((f) => applyGlobal(f, globalConfig))}
               disabled={!globalConfig}
@@ -302,7 +309,7 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
               className="ml-auto px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm rounded hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Copy from Global
-            </button>
+            </button>}
           </div>
         </div>
       ) : (
@@ -322,6 +329,7 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
                   </button>
                 </span>
               } />
+              {!keyOnly && (<>
               <Summary label="Model" value={info?.model || <Muted>not set</Muted>} />
               <div className="grid grid-cols-2 gap-x-3">
                 <Summary label="Max Tokens" value={info?.max_tokens ?? <Muted>—</Muted>} />
@@ -333,6 +341,7 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
                 {info?.streaming != null && <Badge on={info.streaming}>streaming</Badge>}
                 {info?.supports_tools != null && <Badge on={info.supports_tools}>tools</Badge>}
               </div>
+              </>)}
               {fromPackage && (
                 <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-2 py-1">
                   Inherited from package{info?.package_name ? ` “${info.package_name}”` : ''}. Editing creates a personal override for this user only.
@@ -347,12 +356,16 @@ function ApiKeyCard({ provider, info, globalConfig, onSave, onDelete }: ApiKeyCa
             </div>
           ) : (
             <div>
-              <p className="text-sm text-gray-500 mb-2">Not available from this user’s package.</p>
+              <p className="text-sm text-gray-500 mb-2">
+                {keyOnly
+                  ? 'No personal key: Dispatcher routing uses the global Jev key, if one is set.'
+                  : 'Not available from this user’s package.'}
+              </p>
               <button
                 onClick={() => setIsEditing(true)}
                 className="text-sm text-blue-600 hover:text-blue-800"
               >
-                Enable for this user
+                {keyOnly ? 'Set a key for this user' : 'Enable for this user'}
               </button>
             </div>
           )}
@@ -516,6 +529,22 @@ export function ApiKeysSettings({ userId }: ApiKeysSettingsProps) {
             />
           );
         })}
+      </div>
+      <h3 className="text-lg font-semibold text-gray-800 mt-8">Dispatcher routing</h3>
+      <p className="text-sm text-gray-500 mt-1 mb-4">
+        Jev routes Dispatcher agents instead of a model. Not a chat provider; this user&apos;s key wins over the global one.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {ROUTER_PROVIDERS.map((provider) => (
+          <ApiKeyCard
+            key={provider}
+            provider={provider}
+            keyOnly
+            info={keys?.[provider]}
+            onSave={(payload) => saveKeys({ [provider]: payload })}
+            onDelete={() => deleteKey(provider)}
+          />
+        ))}
       </div>
     </div>
   );

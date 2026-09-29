@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePackages } from '../hooks/usePackages';
 import { Switch } from './Switch';
 import * as api from '../api/client';
+import { isRouterRow } from '../types';
 import type {
   McpServer,
 } from '../api/client';
@@ -115,6 +116,8 @@ export function PackagesPanel() {
       const nextProviders = { ...draft.providers };
       let changed = 0;
       for (const p of res.providers) {
+        // A router row (Jev) is not a chat provider: packages never carry it.
+        if (isRouterRow(p)) continue;
         const key = p.provider_key;
         const apiKey = p.api_key ? String(p.api_key).trim() : '';
         const model = p.model ? String(p.model).trim() : '';

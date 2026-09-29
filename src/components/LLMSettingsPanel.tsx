@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLLMSettings } from '../hooks/useLLMSettings';
 import { useModelCatalog } from '../lib/modelCatalog';
+import { isRouterRow, ROUTER_API_FORMAT } from '../types';
 import type { LLMProviderConfig } from '../types';
 
 // A provider row whose stored price is null falls back to the catalog price
@@ -86,6 +87,157 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete }: ProviderCardProp
         >
           Delete
         </button>
+      </div>
+    </div>
+  );
+}
+
+// A router row (Jev) only holds a key: Dispatcher agents use it to route
+// instead of calling a model. No model, price, tokens or temperature here.
+function RouterCard({ provider, onEdit, onToggle }: Omit<ProviderCardProps, 'onDelete'>) {
+  return (
+    <div className={`border rounded-lg p-4 ${provider.enabled ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-200'}`}>
+      <div className="flex justify-between items-start mb-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h4 className="font-medium text-gray-900">{provider.display_name}</h4>
+            {!provider.enabled && (
+              <span className="inline-block px-2 py-0.5 text-xs bg-gray-400 text-white rounded">
+                Disabled
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mt-1">{provider.provider_key}</p>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={provider.enabled}
+            onChange={(e) => onToggle(provider.provider_key, e.target.checked)}
+            className="sr-only peer"
+          />
+          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <p>
+          <span className="text-gray-500">API Key:</span>{' '}
+          {provider.api_key_masked
+            ? <span className="font-mono">{provider.api_key_masked}</span>
+            : <span className="text-gray-400">not set</span>}
+        </p>
+        <p className="text-xs text-gray-500">
+          Global key for Dispatcher agents in Jev routing mode. A user&apos;s own Jev key wins over it.
+        </p>
+      </div>
+
+      <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
+        <button
+          onClick={() => onEdit(provider)}
+          className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded"
+        >
+          Edit
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface RouterFormProps {
+  provider: LLMProviderConfig;
+  onSave: (provider: Partial<LLMProviderConfig>) => Promise<boolean>;
+  onCancel: () => void;
+}
+
+function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
+  const [displayName, setDisplayName] = useState(provider.display_name);
+  const [apiKey, setApiKey] = useState('');
+  const [enabled, setEnabled] = useState(provider.enabled);
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    // The save endpoint rewrites the whole row, so send the stored values back
+    // unchanged. api_format must be 'router' (the backend defaults a missing
+    // one to 'openai' and rejects that for a router), and model is required.
+    // A blank key keeps the stored one.
+    const success = await onSave({
+      provider_key: provider.provider_key,
+      display_name: displayName.trim() || provider.display_name,
+      api_key: apiKey.trim(),
+      model: provider.model || 'jev-latest',
+      max_tokens: provider.max_tokens,
+      temperature: provider.temperature,
+      supported_models: provider.supported_models ?? [],
+      system_prompt: provider.system_prompt,
+      sort_order: provider.sort_order,
+      enabled,
+      api_format: ROUTER_API_FORMAT,
+    });
+    setSaving(false);
+    if (success) onCancel();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">Edit Dispatcher routing</h3>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              API Key
+              <span className="ml-2 text-xs text-gray-400 font-normal">
+                {provider.api_key_masked ? `(blank keeps ${provider.api_key_masked})` : '(not set)'}
+              </span>
+            </label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+              placeholder="Enter Jev API key"
+              autoComplete="off"
+            />
+          </div>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="w-4 h-4 text-blue-600 rounded"
+            />
+            <span className="text-sm text-gray-700">Enabled</span>
+          </label>
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -406,6 +558,9 @@ export function LLMSettingsPanel() {
   const [editingProvider, setEditingProvider] = useState<Partial<LLMProviderConfig> | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  // Router rows (Jev) are not chat providers: they get their own card.
+  const chatProviders = providers.filter((p) => !isRouterRow(p));
+  const routerProviders = providers.filter(isRouterRow);
 
   useEffect(() => {
     fetchProviders();
@@ -476,7 +631,7 @@ export function LLMSettingsPanel() {
         </div>
       )}
 
-      {providers.length === 0 ? (
+      {chatProviders.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg">
           <p className="text-gray-500 mb-4">No LLM providers configured</p>
           <button
@@ -489,7 +644,7 @@ export function LLMSettingsPanel() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {providers.map((provider) => (
+          {chatProviders.map((provider) => (
             <ProviderCard
               key={provider.provider_key}
               provider={provider}
@@ -501,7 +656,32 @@ export function LLMSettingsPanel() {
         </div>
       )}
 
-      {showForm && (
+      {routerProviders.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-lg font-semibold text-gray-800">Dispatcher routing</h3>
+          <p className="text-sm text-gray-500 mt-1 mb-4">
+            Routing service used by Dispatcher agents instead of a model. Not a chat provider.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {routerProviders.map((provider) => (
+              <RouterCard
+                key={provider.provider_key}
+                provider={provider}
+                onEdit={handleEdit}
+                onToggle={toggleProvider}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showForm && editingProvider && isRouterRow(editingProvider) ? (
+        <RouterForm
+          provider={editingProvider as LLMProviderConfig}
+          onSave={handleSave}
+          onCancel={() => setShowForm(false)}
+        />
+      ) : showForm && (
         <ProviderForm
           provider={editingProvider}
           onSave={handleSave}

@@ -157,7 +157,18 @@ export interface ApiKeySavePayload {
 
 export type LLMProvider = 'claude' | 'openai' | 'gemini' | 'grok' | 'deepseek' | 'kimi' | 'gamma4';
 
-export type ApiKeys = Record<LLMProvider, ApiKeyInfo>;
+// Routers (Jev) store a key like an LLM provider but are NOT chat providers:
+// they never belong in LLM_PROVIDERS, a model/price list or fill-from-global.
+export type RouterProvider = 'jev';
+export const ROUTER_PROVIDERS: RouterProvider[] = ['jev'];
+// system_llm_settings.api_format of a router row; the backend requires it on every save of one.
+export const ROUTER_API_FORMAT = 'router';
+
+export function isRouterRow(row: { api_format?: string | null }): boolean {
+  return row.api_format === ROUTER_API_FORMAT;
+}
+
+export type ApiKeys = Record<LLMProvider | RouterProvider, ApiKeyInfo>;
 
 // Avatar/Voice provider names
 export const AVATAR_PROVIDERS = ['did', 'anam', 'heygen', 'tavus'] as const;
@@ -184,7 +195,7 @@ export interface LLMProviderConfig {
   streaming: boolean;
   supports_tools: boolean;
   supported_models: string[];
-  api_format: 'openai' | 'anthropic' | 'gemini';
+  api_format: 'openai' | 'anthropic' | 'gemini' | typeof ROUTER_API_FORMAT;
   system_prompt: string | null;
   enabled: boolean;
   sort_order: number;
