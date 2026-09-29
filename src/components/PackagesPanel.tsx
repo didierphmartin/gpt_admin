@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePackages } from '../hooks/usePackages';
 import { Switch } from './Switch';
 import * as api from '../api/client';
-import { isRouterRow } from '../types';
+import { isRouterRow, ROUTER_PROVIDERS } from '../types';
 import type {
   McpServer,
 } from '../api/client';
@@ -116,9 +116,16 @@ export function PackagesPanel() {
       const nextProviders = { ...draft.providers };
       let changed = 0;
       for (const p of res.providers) {
-        // A router row (Jev) is not a chat provider: packages never carry it.
-        if (isRouterRow(p)) continue;
         const key = p.provider_key;
+        // A router row (Jev) is not a chat provider: copy only its key, never a
+        // model, and never touch its enabled switch.
+        if (isRouterRow(p)) {
+          const routerKey = p.api_key ? String(p.api_key).trim() : '';
+          if (!routerKey) continue;
+          nextProviders[key] = { ...(nextProviders[key] ?? { enabled: false }), default_api_key: routerKey };
+          changed++;
+          continue;
+        }
         const apiKey = p.api_key ? String(p.api_key).trim() : '';
         const model = p.model ? String(p.model).trim() : '';
         if (!apiKey && !model) continue;
@@ -287,34 +294,8 @@ function PackageForm({
     patch({ mcp_servers: Array.from(next) });
   };
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-      {/* LLM Providers */}
-      <div className="lg:col-span-3">
-      <Section
-        title="LLM Providers"
-        actions={
-          <button
-            type="button"
-            onClick={onFillKeysFromGlobal}
-            disabled={fillingKeys}
-            title="Copy API keys and models from Global Settings > LLM providers into this package"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-700 bg-white border border-blue-300 rounded-md shadow-sm hover:bg-blue-50 hover:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            {fillingKeys ? 'Filling…' : 'Fill keys + models from Global Settings'}
-          </button>
-        }
-      >
-        <p className="text-xs text-gray-500 mb-3">
-          For each provider: toggle access, pick the default model users see,
-          and optionally supply a default API key. Users in this role can
-          override the model and key in their own Settings.
-        </p>
-        <div className="space-y-3">
-          {providerKeys.map((key) => {
+  // One provider row. keyOnly (router rows such as Jev) drops the model select.
+  const renderProviderRow = (key: string, keyOnly = false) => {
             const cfg = draft.providers[key] ?? { enabled: false };
             const providerModels = catalog[key] ?? [];
             return (
@@ -328,6 +309,7 @@ function PackageForm({
                       label={key}
                     />
                   </div>
+                  {!keyOnly && (
                   <select
                     value={cfg.default_model ?? ''}
                     onChange={(e) =>
@@ -345,6 +327,7 @@ function PackageForm({
                       </option>
                     ))}
                   </select>
+                  )}
                 </div>
                 <div className="relative w-full">
                   <input
@@ -382,7 +365,46 @@ function PackageForm({
                 </div>
               </div>
             );
-          })}
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      {/* LLM Providers */}
+      <div className="lg:col-span-3">
+      <Section
+        title="LLM Providers"
+        actions={
+          <button
+            type="button"
+            onClick={onFillKeysFromGlobal}
+            disabled={fillingKeys}
+            title="Copy API keys and models from Global Settings > LLM providers into this package"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-700 bg-white border border-blue-300 rounded-md shadow-sm hover:bg-blue-50 hover:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            {fillingKeys ? 'Filling…' : 'Fill keys + models from Global Settings'}
+          </button>
+        }
+      >
+        <p className="text-xs text-gray-500 mb-3">
+          For each provider: toggle access, pick the default model users see,
+          and optionally supply a default API key. Users in this role can
+          override the model and key in their own Settings.
+        </p>
+        <div className="space-y-3">
+          {providerKeys.map((key) => renderProviderRow(key))}
+        </div>
+        <div className="mt-5 pt-4 border-t border-gray-300">
+          <h4 className="text-sm font-semibold text-gray-800">Dispatcher routing</h4>
+          <p className="text-xs text-gray-500 mt-1 mb-3">
+            Jev routes Dispatcher agents instead of calling a model. Switch it on for this role and
+            optionally supply a default key (a user&apos;s own key wins over it).
+          </p>
+          <div className="space-y-3">
+            {ROUTER_PROVIDERS.map((key) => renderProviderRow(key, true))}
+          </div>
         </div>
       </Section>
       </div>

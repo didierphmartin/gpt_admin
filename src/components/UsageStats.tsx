@@ -500,6 +500,7 @@ export function UsageStats() {
       grok: 'bg-orange-100 text-orange-800',
       kimi: 'bg-pink-100 text-pink-800',
       deepseek: 'bg-cyan-100 text-cyan-800',
+      jev: 'bg-teal-100 text-teal-800',
     };
     return colors[provider] || 'bg-gray-100 text-gray-800';
   };
@@ -998,6 +999,7 @@ export function UsageStats() {
               <option value="grok">Grok</option>
               <option value="kimi">Kimi</option>
               <option value="deepseek">DeepSeek</option>
+              <option value="jev">Jev</option>
             </select>
             <select
               value={transactionFilters.status}

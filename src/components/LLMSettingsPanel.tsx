@@ -127,6 +127,12 @@ function RouterCard({ provider, onEdit, onToggle }: Omit<ProviderCardProps, 'onD
             ? <span className="font-mono">{provider.api_key_masked}</span>
             : <span className="text-gray-400">not set</span>}
         </p>
+        <p>
+          <span className="text-gray-500">Price:</span>{' '}
+          {provider.price_input_per_1m == null && provider.price_output_per_1m == null
+            ? <span className="text-gray-400">&mdash;</span>
+            : `Input $${provider.price_input_per_1m ?? '—'} / 1M · Output $${provider.price_output_per_1m ?? '—'} / 1M`}
+        </p>
         <p className="text-xs text-gray-500">
           Global key for Dispatcher agents in Jev routing mode. A user&apos;s own Jev key wins over it.
         </p>
@@ -154,6 +160,8 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
   const [displayName, setDisplayName] = useState(provider.display_name);
   const [apiKey, setApiKey] = useState('');
   const [enabled, setEnabled] = useState(provider.enabled);
+  const [priceIn, setPriceIn] = useState(provider.price_input_per_1m == null ? '' : String(provider.price_input_per_1m));
+  const [priceOut, setPriceOut] = useState(provider.price_output_per_1m == null ? '' : String(provider.price_output_per_1m));
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -170,6 +178,8 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
       model: provider.model || 'jev-latest',
       max_tokens: provider.max_tokens,
       temperature: provider.temperature,
+      price_input_per_1m: priceIn.trim() === '' ? null : Number(priceIn),
+      price_output_per_1m: priceOut.trim() === '' ? null : Number(priceOut),
       supported_models: provider.supported_models ?? [],
       system_prompt: provider.system_prompt,
       sort_order: provider.sort_order,
@@ -211,6 +221,26 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
               placeholder="Enter Jev API key"
               autoComplete="off"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Input $ / 1M</label>
+              <input
+                type="number" step="0.001" min="0"
+                value={priceIn}
+                onChange={(e) => setPriceIn(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Output $ / 1M</label>
+              <input
+                type="number" step="0.001" min="0"
+                value={priceOut}
+                onChange={(e) => setPriceOut(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+            </div>
           </div>
           <label className="flex items-center gap-2">
             <input
