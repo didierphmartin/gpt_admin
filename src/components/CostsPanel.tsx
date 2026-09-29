@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useModelCatalog, type Catalog } from '../lib/modelCatalog';
 
 interface PricingTier {
   name: string;
@@ -84,88 +85,10 @@ const CURRENCY_NAMES: Record<Currency, string> = {
   CAD: 'Canadian Dollar'
 };
 
-// Default pricing structure - will be populated from API/LLM
+// Default pricing structure - will be populated from API/LLM. LLM prices are
+// not listed here: they come from the shared model catalog (see llmCosts).
 const DEFAULT_COSTS: CostsData = {
-  llm: [
-    {
-      provider: 'claude',
-      displayName: 'Claude (Anthropic)',
-      category: 'llm',
-      tiers: [
-        { name: 'Claude 3.5 Sonnet', price: '$3.00', unit: '/ 1M input tokens', details: '$15.00 / 1M output tokens' },
-        { name: 'Claude 3.5 Haiku', price: '$0.80', unit: '/ 1M input tokens', details: '$4.00 / 1M output tokens' },
-        { name: 'Claude 3 Opus', price: '$15.00', unit: '/ 1M input tokens', details: '$75.00 / 1M output tokens' },
-      ],
-      pricingUrl: 'https://www.anthropic.com/pricing',
-      lastUpdated: null,
-    },
-    {
-      provider: 'openai',
-      displayName: 'OpenAI',
-      category: 'llm',
-      tiers: [
-        { name: 'GPT-4o', price: '$2.50', unit: '/ 1M input tokens', details: '$10.00 / 1M output tokens' },
-        { name: 'GPT-4o mini', price: '$0.15', unit: '/ 1M input tokens', details: '$0.60 / 1M output tokens' },
-        { name: 'GPT-4 Turbo', price: '$10.00', unit: '/ 1M input tokens', details: '$30.00 / 1M output tokens' },
-      ],
-      pricingUrl: 'https://openai.com/api/pricing',
-      lastUpdated: null,
-    },
-    {
-      provider: 'gemini',
-      displayName: 'Gemini (Google)',
-      category: 'llm',
-      tiers: [
-        { name: 'Gemini 1.5 Pro', price: '$1.25', unit: '/ 1M input tokens', details: '$5.00 / 1M output tokens' },
-        { name: 'Gemini 1.5 Flash', price: '$0.075', unit: '/ 1M input tokens', details: '$0.30 / 1M output tokens' },
-        { name: 'Gemini 2.0 Flash', price: '$0.10', unit: '/ 1M input tokens', details: '$0.40 / 1M output tokens' },
-      ],
-      pricingUrl: 'https://ai.google.dev/pricing',
-      lastUpdated: null,
-    },
-    {
-      provider: 'grok',
-      displayName: 'Grok (xAI)',
-      category: 'llm',
-      tiers: [
-        { name: 'Grok-2', price: '$2.00', unit: '/ 1M input tokens', details: '$10.00 / 1M output tokens' },
-        { name: 'Grok-2 mini', price: '$0.20', unit: '/ 1M input tokens', details: '$1.00 / 1M output tokens' },
-      ],
-      pricingUrl: 'https://x.ai/api',
-      lastUpdated: null,
-    },
-    {
-      provider: 'deepseek',
-      displayName: 'DeepSeek',
-      category: 'llm',
-      tiers: [
-        { name: 'DeepSeek-V3', price: '$0.27', unit: '/ 1M input tokens', details: '$1.10 / 1M output tokens' },
-        { name: 'DeepSeek-R1', price: '$0.55', unit: '/ 1M input tokens', details: '$2.19 / 1M output tokens' },
-      ],
-      pricingUrl: 'https://platform.deepseek.com/api-docs/pricing',
-      lastUpdated: null,
-    },
-    {
-      provider: 'kimi',
-      displayName: 'Kimi (Moonshot)',
-      category: 'llm',
-      tiers: [
-        { name: 'Moonshot-v1-8k', price: '$0.012', unit: '/ 1K tokens' },
-        { name: 'Moonshot-v1-32k', price: '$0.024', unit: '/ 1K tokens' },
-        { name: 'Moonshot-v1-128k', price: '$0.06', unit: '/ 1K tokens' },
-      ],
-      pricingUrl: 'https://platform.moonshot.cn/docs/pricing',
-      lastUpdated: null,
-    },
-    {
-      provider: 'gamma4',
-      displayName: 'Gamma4',
-      category: 'llm',
-      tiers: [{ name: 'Gemma-4-E4B-it', price: '$0.00', unit: '/ 1M input tokens', details: 'Free' }],
-      pricingUrl: '',
-      lastUpdated: null,
-    },
-  ],
+  llm: [],
   voice: [
     {
       provider: 'elevenlabs',
@@ -282,10 +205,47 @@ import { getAdminBase } from '../lib/backendConfig';
 
 const API_BASE = getAdminBase();
 
+/** A USD amount with at least two decimals, e.g. 0.75 -> "$0.75", 0.003 -> "$0.003". */
+function usd(n: number): string {
+  const decimals = Math.max(2, (String(n).split('.')[1] || '').length);
+  return `$${n.toFixed(decimals)}`;
+}
+
+/**
+ * LLM pricing cards from the model catalog (the single source of LLM prices).
+ * Card metadata (display name, pricing page) comes from the stored entry for
+ * that provider when there is one. Stored providers the catalog does not list
+ * keep their stored tiers; with no catalog loaded, the stored list is shown.
+ */
+function llmCostsFromCatalog(catalog: Catalog, stored: ProviderCost[]): ProviderCost[] {
+  const keys = Object.keys(catalog).filter((k) => (catalog[k] || []).length > 0);
+  if (keys.length === 0) return stored;
+  const byKey = new Map(stored.map((p) => [p.provider, p]));
+  const fromCatalog: ProviderCost[] = keys.map((key) => {
+    const meta = byKey.get(key);
+    return {
+      provider: key,
+      displayName: meta?.displayName || key.charAt(0).toUpperCase() + key.slice(1),
+      category: 'llm',
+      tiers: catalog[key].map((m) => ({
+        name: m.promo_ends ? `${m.label || m.id} (promo until ${m.promo_ends})` : (m.label || m.id),
+        price: typeof m.input === 'number' ? usd(m.input) : '\u2014',
+        unit: '/ 1M input tokens',
+        details: typeof m.output === 'number' ? `${usd(m.output)} / 1M output tokens` : undefined,
+      })),
+      pricingUrl: meta?.pricingUrl || '',
+      lastUpdated: null,
+      notes: 'Prices from the model catalog.',
+    };
+  });
+  return [...fromCatalog, ...stored.filter((p) => !(p.provider in catalog))];
+}
+
 type MainTab = 'usage' | 'pricing';
 
 export function CostsPanel() {
   const [costs, setCosts] = useState<CostsData>(DEFAULT_COSTS);
+  const { catalog } = useModelCatalog();
   const [usageCosts, setUsageCosts] = useState<UsageCosts>(DEFAULT_USAGE);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_RATES);
   const [ratesLastUpdated, setRatesLastUpdated] = useState<string | null>(null);
@@ -521,13 +481,14 @@ export function CostsPanel() {
     }
   };
 
+  const llmCosts = useMemo(() => llmCostsFromCatalog(catalog, costs.llm), [catalog, costs.llm]);
   const categories = [
-    { id: 'llm' as const, label: 'LLM', count: costs.llm.length },
+    { id: 'llm' as const, label: 'LLM', count: llmCosts.length },
     { id: 'voice' as const, label: 'Voice', count: costs.voice.length },
     { id: 'avatar' as const, label: 'Avatar', count: costs.avatar.length },
   ];
 
-  const currentProviders = costs[activeCategory];
+  const currentProviders = activeCategory === 'llm' ? llmCosts : costs[activeCategory];
   const currentUsage = usageCosts[activeCategory];
 
   if (loading) {
@@ -964,26 +925,29 @@ export function CostsPanel() {
                     >
                       Pricing Page
                     </a>
-                    <button
-                      onClick={() => refreshProviderCosts(provider.category, provider.provider)}
-                      disabled={refreshingProvider === `${provider.category}-${provider.provider}`}
-                      className="p-1.5 text-gray-400 hover:text-blue-600 rounded transition-colors"
-                      title="Refresh this provider"
-                    >
-                      <svg
-                        className={`w-4 h-4 ${refreshingProvider === `${provider.category}-${provider.provider}` ? 'animate-spin' : ''}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                    {/* LLM prices come from the model catalog, so there is nothing to refresh. */}
+                    {provider.category !== 'llm' && (
+                      <button
+                        onClick={() => refreshProviderCosts(provider.category, provider.provider)}
+                        disabled={refreshingProvider === `${provider.category}-${provider.provider}`}
+                        className="p-1.5 text-gray-400 hover:text-blue-600 rounded transition-colors"
+                        title="Refresh this provider"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                    </button>
+                        <svg
+                          className={`w-4 h-4 ${refreshingProvider === `${provider.category}-${provider.provider}` ? 'animate-spin' : ''}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 </div>
 

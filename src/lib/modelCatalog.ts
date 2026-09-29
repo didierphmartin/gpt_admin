@@ -21,6 +21,8 @@ export interface ModelChoice {
   desc: string;
   input: number;
   output: number;
+  /** Last day (YYYY-MM-DD) a promotional price holds; absent for list prices. */
+  promo_ends?: string;
 }
 
 export type Catalog = Record<string, ModelChoice[]>;
