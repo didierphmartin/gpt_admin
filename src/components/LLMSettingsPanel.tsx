@@ -3,6 +3,13 @@ import { useLLMSettings } from '../hooks/useLLMSettings';
 import { useModelCatalog } from '../lib/modelCatalog';
 import type { LLMProviderConfig } from '../types';
 
+// A provider row whose stored price is null falls back to the catalog price
+// for its model, so the admin still sees what the model costs.
+function formatPrice(stored: number | null | undefined, catalogPrice: number | undefined): string {
+  const price = stored ?? catalogPrice;
+  return price != null ? `$${Number(price).toFixed(2)}` : '—';
+}
+
 interface ProviderCardProps {
   provider: LLMProviderConfig;
   onEdit: (provider: LLMProviderConfig) => void;
@@ -11,6 +18,8 @@ interface ProviderCardProps {
 }
 
 function ProviderCard({ provider, onEdit, onToggle, onDelete }: ProviderCardProps) {
+  const { catalog } = useModelCatalog();
+  const entry = (catalog[provider.provider_key] ?? []).find((m) => m.id === provider.model);
   return (
     <div className={`border rounded-lg p-4 ${provider.enabled ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-200'}`}>
       <div className="flex justify-between items-start mb-3">
@@ -43,8 +52,8 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete }: ProviderCardProp
         <p>
           <span className="text-gray-500">Price / 1M tokens:</span>{' '}
           <span className="font-mono text-gray-800">
-            in {provider.price_input_per_1m != null ? `$${provider.price_input_per_1m.toFixed(2)}` : '—'} /{' '}
-            out {provider.price_output_per_1m != null ? `$${provider.price_output_per_1m.toFixed(2)}` : '—'}
+            in {formatPrice(provider.price_input_per_1m, entry?.input)} /{' '}
+            out {formatPrice(provider.price_output_per_1m, entry?.output)}
           </span>
         </p>
         {provider.api_key_masked && (
@@ -114,18 +123,26 @@ function ProviderForm({ provider, onSave, onCancel }: ProviderFormProps) {
 
   const isEditing = !!provider?.provider_key;
 
-  // Build the dropdown options for the Model field from the shared catalog.
-  // Always ensure the currently-saved value is in the options (covers legacy
-  // or manually-seeded values not in the list).
+  // Build the dropdown options for the Model field from the shared catalog,
+  // each labelled with its price like gpt's own Settings panel. Always ensure
+  // the currently-saved value is in the options (covers legacy or
+  // manually-seeded values not in the list).
   const modelOptions = useMemo(() => {
     const key = formData.provider_key || '';
-    const base = (catalog[key] ?? []).map((m) => m.id);
+    const base = (catalog[key] ?? []).map((m) => ({
+      value: m.id,
+      text: `${m.label || m.id} — $${m.input}/$${m.output} per M`,
+    }));
     const current = formData.model?.trim();
-    if (current && !base.includes(current)) {
-      return [current, ...base];
+    if (current && !base.some((o) => o.value === current)) {
+      return [{ value: current, text: current }, ...base];
     }
     return base;
   }, [formData.provider_key, formData.model, catalog]);
+
+  // The catalog entry for the selected model: fills the displayed (and
+  // saved) price when the stored price is null.
+  const catalogEntry = (catalog[formData.provider_key || ''] ?? []).find((m) => m.id === formData.model);
 
   // Changing the model auto-updates the displayed token cost IF the catalog
   // has an entry for the selected model. Otherwise leave the existing price
@@ -147,6 +164,8 @@ function ProviderForm({ provider, onSave, onCancel }: ProviderFormProps) {
     setSaving(true);
     const dataToSave = {
       ...formData,
+      price_input_per_1m: formData.price_input_per_1m ?? catalogEntry?.input ?? null,
+      price_output_per_1m: formData.price_output_per_1m ?? catalogEntry?.output ?? null,
       // supported_models is no longer editable in the UI; keep whatever the
       // record already has (or an empty list for new providers).
       supported_models: formData.supported_models ?? [],
@@ -209,8 +228,8 @@ function ProviderForm({ provider, onSave, onCancel }: ProviderFormProps) {
                   required
                 >
                   {!formData.model && <option value="" disabled>Select a model...</option>}
-                  {modelOptions.map((m) => (
-                    <option key={m} value={m}>{m}</option>
+                  {modelOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.text}</option>
                   ))}
                 </select>
               ) : (
@@ -219,7 +238,7 @@ function ProviderForm({ provider, onSave, onCancel }: ProviderFormProps) {
                   value={formData.model || ''}
                   onChange={(e) => handleModelChange(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
-                  placeholder="e.g., claude-sonnet-4-5"
+                  placeholder="e.g., claude-sonnet-5"
                   required
                 />
               )}
@@ -229,9 +248,9 @@ function ProviderForm({ provider, onSave, onCancel }: ProviderFormProps) {
                 Token cost <span className="text-gray-400 font-normal">(USD / 1M)</span>
               </label>
               <div className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-md text-sm font-mono text-gray-700">
-                in {formData.price_input_per_1m != null ? `$${Number(formData.price_input_per_1m).toFixed(2)}` : '—'}
+                in {formatPrice(formData.price_input_per_1m, catalogEntry?.input)}
                 {' / '}
-                out {formData.price_output_per_1m != null ? `$${Number(formData.price_output_per_1m).toFixed(2)}` : '—'}
+                out {formatPrice(formData.price_output_per_1m, catalogEntry?.output)}
               </div>
               <p className="mt-1 text-xs text-gray-400 italic">
                 Pulled from the shared model catalog
