@@ -13,6 +13,9 @@ import { UserMcpServersPanel } from './components/UserMcpServersPanel';
 import { UserAppKeysPanel } from './components/UserAppKeysPanel';
 import { UserCostsPanel } from './components/UserCostsPanel';
 import { LoginPage } from './components/LoginPage';
+import { getSetupStatus } from './api/setup';
+import type { SetupStatus } from './api/setup';
+import { SetupWizard } from './components/SetupWizard';
 import { PackagesPanel } from './components/PackagesPanel';
 import { LedgerAdmin } from './components/LedgerAdmin';
 import { ReadmeViewer } from './components/ReadmeViewer';
@@ -340,6 +343,19 @@ function AdminPanel() {
 
 function AppContent() {
   const { isAuthenticated, isLoading, isAdmin, app } = useAuth();
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
+  useEffect(() => { getSetupStatus().then(setSetup); }, []);
+
+  if (setup === null) {
+    return (
+      <div className="h-full flex items-center justify-center bg-gray-100">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      </div>
+    );
+  }
+  if (setup.needs_setup) {
+    return <SetupWizard onDone={() => setSetup({ ...setup, needs_setup: false })} />;
+  }
 
   // Show loading while checking auth
   if (isLoading) {
@@ -374,7 +390,7 @@ function AppContent() {
 
   // Show login if not authenticated or not admin
   if (!isAuthenticated || !isAdmin) {
-    return <LoginPage />;
+    return <LoginPage corporate={setup.edition === 'corporate'} />;
   }
 
   // Pick which app to administer

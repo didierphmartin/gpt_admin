@@ -11,6 +11,7 @@ import type { FirebaseUserData } from '../lib/firebase';
 import { base64UrlDecode, base64UrlEncode } from '../lib/webauthn';
 import { loginPortfolio, loginPortfolioWithFirebase } from '../api/portfolio';
 import { captureSsoToken } from '../lib/sso';
+import { loginViaLoginService } from '../api/setup';
 
 interface User {
   id: number;
@@ -34,6 +35,7 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<boolean>;
   loginWithSso: (loginToken: string) => Promise<boolean>;
+  loginCorporate: (email: string, password: string) => Promise<boolean>;
   loginWithGoogle: () => Promise<boolean>;
   loginWithFacebook: () => Promise<boolean>;
   loginWithPasskey: () => Promise<boolean>;
@@ -187,6 +189,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, []);
+
+  // Corporate edition: the login service holds the password; loginWithSso
+  // exchanges its token for the gpt session and applies the admin check.
+  const loginCorporate = useCallback(async (email: string, password: string): Promise<boolean> => {
+    setState(prev => ({ ...prev, isLoading: true, error: null }));
+    const result = await loginViaLoginService(email, password);
+    if (!result.ok) {
+      setState({ ...EMPTY_STATE, error: result.message });
+      return false;
+    }
+    return loginWithSso(result.token);
+  }, [loginWithSso]);
 
   // Initialize auth state from storage
   useEffect(() => {
@@ -659,6 +673,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ...state,
     login,
     loginWithSso,
+    loginCorporate,
     loginWithGoogle,
     loginWithFacebook,
     loginWithPasskey,
