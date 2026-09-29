@@ -212,22 +212,20 @@ function usd(n: number): string {
 }
 
 /**
- * LLM pricing cards from the model catalog (the single source of LLM prices).
- * Card metadata (display name, pricing page) comes from the stored entry for
- * that provider when there is one. Stored providers the catalog does not list
- * keep their stored tiers; with no catalog loaded, the stored list is shown.
+ * LLM pricing cards, built from the model catalog only (the single source of
+ * LLM prices). A stored entry for the provider may only supply its display
+ * name and pricing page; stored LLM tiers are never shown. A provider the
+ * catalog lists with no models still gets a card, with no tiers.
  */
 function llmCostsFromCatalog(catalog: Catalog, stored: ProviderCost[]): ProviderCost[] {
-  const keys = Object.keys(catalog).filter((k) => (catalog[k] || []).length > 0);
-  if (keys.length === 0) return stored;
   const byKey = new Map(stored.map((p) => [p.provider, p]));
-  const fromCatalog: ProviderCost[] = keys.map((key) => {
+  return Object.keys(catalog).map((key) => {
     const meta = byKey.get(key);
     return {
       provider: key,
       displayName: meta?.displayName || key.charAt(0).toUpperCase() + key.slice(1),
       category: 'llm',
-      tiers: catalog[key].map((m) => ({
+      tiers: (catalog[key] || []).map((m) => ({
         name: m.promo_ends ? `${m.label || m.id} (promo until ${m.promo_ends})` : (m.label || m.id),
         price: typeof m.input === 'number' ? usd(m.input) : '\u2014',
         unit: '/ 1M input tokens',
@@ -238,14 +236,13 @@ function llmCostsFromCatalog(catalog: Catalog, stored: ProviderCost[]): Provider
       notes: 'Prices from the model catalog.',
     };
   });
-  return [...fromCatalog, ...stored.filter((p) => !(p.provider in catalog))];
 }
 
 type MainTab = 'usage' | 'pricing';
 
 export function CostsPanel() {
   const [costs, setCosts] = useState<CostsData>(DEFAULT_COSTS);
-  const { catalog } = useModelCatalog();
+  const { catalog, loading: catalogLoading, error: catalogError } = useModelCatalog();
   const [usageCosts, setUsageCosts] = useState<UsageCosts>(DEFAULT_USAGE);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_RATES);
   const [ratesLastUpdated, setRatesLastUpdated] = useState<string | null>(null);
@@ -901,6 +898,15 @@ export function CostsPanel() {
             </nav>
           </div>
 
+          {activeCategory === 'llm' && catalogLoading && (
+            <div className="text-sm text-gray-500 py-6 text-center">Loading LLM prices from the model catalog…</div>
+          )}
+          {activeCategory === 'llm' && !catalogLoading && catalogError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
+              Could not load the model catalog, so LLM prices are unavailable: {catalogError}
+            </div>
+          )}
+
           {/* Provider Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {currentProviders.map((provider) => (
@@ -962,6 +968,13 @@ export function CostsPanel() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
+                      {provider.tiers.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="py-2 text-gray-400 italic">
+                            {provider.category === 'llm' ? 'No models listed in the model catalog' : 'No pricing tiers'}
+                          </td>
+                        </tr>
+                      )}
                       {provider.tiers.map((tier, idx) => (
                         <tr key={idx}>
                           <td className="py-2">
