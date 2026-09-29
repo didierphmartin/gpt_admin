@@ -395,7 +395,7 @@ function AppContent() {
 
   // Pick which app to administer
   if (!app) {
-    return <AppPicker />;
+    return <AppPicker corporate={setup.edition === 'corporate'} />;
   }
 
   if (app === 'portfolio') {
@@ -410,7 +410,8 @@ function AppContent() {
     return <VideoEditorAdmin />;
   }
 
-  if (app === 'login') {
+  // Hidden on corporate (see AppPicker); a remembered selection must not reopen it.
+  if (app === 'login' && setup.edition !== 'corporate') {
     return <LoginAdmin />;
   }
 

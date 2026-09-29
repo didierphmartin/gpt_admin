@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { BackendTabs } from './BackendSwitcher';
 import { getBackendId } from '../lib/backendConfig';
 
-export function AppPicker() {
+export function AppPicker({ corporate = false }: { corporate?: boolean }) {
   const { selectApp, logout, user, portfolioToken } = useAuth();
   // PortfolioManagement and Ledger have no TypeScript/Python backend — hide them when a non-PHP tab is active.
   const backendId = getBackendId();
@@ -105,6 +105,9 @@ export function AppPicker() {
               }
             />
           )}
+          {/* Corporate: accounts live in both databases and only the Users
+              screen keeps them in step, so the Login card's direct edits are hidden. */}
+          {!corporate && (
           <Card
             title="Login"
             description="Identity service: manage users, roles, SSO app keys, passkeys, and user API keys across all apps."
@@ -119,6 +122,7 @@ export function AppPicker() {
               />
             }
           />
+          )}
         </Section>
       </main>
     </div>
