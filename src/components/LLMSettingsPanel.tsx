@@ -59,8 +59,18 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }
 
       <div className="space-y-2 text-sm">
         <p><span className="text-gray-500">Model:</span> <span className="font-mono text-gray-800">{provider.model}</span></p>
-        <p><span className="text-gray-500">Max Tokens:</span> {decision ? '—' : provider.max_tokens.toLocaleString()}</p>
-        <p><span className="text-gray-500">Temperature:</span> {decision ? '—' : provider.temperature}</p>
+        {decision ? (
+          // Jev does not use these: shown disabled so the card keeps the LLM layout.
+          <>
+            <p className="text-gray-300 cursor-not-allowed" aria-disabled="true" title="Not used by Jev">Max Tokens</p>
+            <p className="text-gray-300 cursor-not-allowed" aria-disabled="true" title="Not used by Jev">Temperature</p>
+          </>
+        ) : (
+          <>
+            <p><span className="text-gray-500">Max Tokens:</span> {provider.max_tokens.toLocaleString()}</p>
+            <p><span className="text-gray-500">Temperature:</span> {provider.temperature}</p>
+          </>
+        )}
         <p>
           <span className="text-gray-500">Price / 1M tokens:</span>{' '}
           <span className="font-mono text-gray-800">
