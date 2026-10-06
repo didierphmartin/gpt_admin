@@ -149,7 +149,7 @@ function AdminPanel() {
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                Packages
+                Roles &amp; packages
               </button>
               <button
                 onClick={() => setMainView('readme')}
@@ -225,7 +225,7 @@ function AdminPanel() {
           </div>
         )}
 
-        {/* Packages View */}
+        {/* Roles & packages View */}
         {mainView === 'packages' && (
           <div className="bg-white rounded-lg shadow p-6">
             <PackagesPanel />

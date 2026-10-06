@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePackages } from '../hooks/usePackages';
+import { useRoles } from '../hooks/useRoles';
 import { Switch } from './Switch';
 import * as api from '../api/client';
-import { isRouterRow, ROUTER_PROVIDERS } from '../types';
+import { isRouterRow, ROBOT_ROLE, ROUTER_PROVIDERS } from '../types';
 import type {
   McpServer,
 } from '../api/client';
@@ -10,18 +11,33 @@ import type {
   Package,
   PackageCapabilities,
   PackageSidebarFlags,
+  Role,
   UserRole,
 } from '../types';
 import { useModelCatalog, type Catalog, type ModelChoice } from '../lib/modelCatalog';
 
-const ROLES: UserRole[] = ['guest', 'prospect', 'user', 'admin'];
-
-const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
+const ROLE_DESCRIPTIONS: Record<string, string> = {
   guest: 'Unauthenticated visitors and admin-created guests (journalists, beta testers).',
   prospect: 'Self-registered trial users before they convert to a paid plan.',
   user: 'Paid users on any plan.',
   admin: 'Full access. Edit with care — this governs your own UI too.',
+  robot: 'The robot account that runs published playbooks. No person holds this role.',
 };
+
+// Same format as the backend's role keys (RoleStore::KEY_RE, at most 64 characters).
+const ROLE_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const ROLE_KEY_MAX = 64;
+
+/** A role key suggested from a display name: "Sales team (EU)" -> "sales-team-eu". */
+function roleKeyFromName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, ROLE_KEY_MAX)
+    .replace(/^-+|-+$/g, '');
+}
 
 const PROVIDER_KEYS = ['claude', 'openai', 'gemini', 'grok', 'deepseek', 'kimi', 'gamma4'] as const;
 
@@ -37,14 +53,35 @@ const SIDEBAR_KEYS: { key: keyof PackageSidebarFlags; label: string }[] = [
 
 /**
  * Deep-clone a capabilities object so the form's local state can mutate
- * without touching the server-truth copy held by the hook.
+ * without touching the server-truth copy held by the hook. A role with no
+ * saved package (a fresh built-in such as robot) or a sparse one arrives with
+ * missing keys, or PHP's `[]` for an empty object; fill those in.
  */
 function cloneCaps(caps: PackageCapabilities): PackageCapabilities {
-  return JSON.parse(JSON.stringify(caps));
+  const c = JSON.parse(JSON.stringify(caps ?? {}));
+  const obj = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  return {
+    ...c,
+    providers: obj(c.providers),
+    sidebar: obj(c.sidebar),
+    mcp_servers: c.mcp_servers ?? null,
+    skills: c.skills ?? null,
+    quota_tokens: c.quota_tokens ?? null,
+    voice: !!c.voice,
+    avatar: !!c.avatar,
+  };
 }
 
 export function PackagesPanel() {
   const { packages, loading, error, fetchPackages, savePackage } = usePackages();
+  const {
+    roles,
+    error: rolesError,
+    fetchRoles,
+    createRole,
+    renameRole,
+    deleteRole,
+  } = useRoles();
   const { catalog } = useModelCatalog();
   const [activeRole, setActiveRole] = useState<UserRole>('guest');
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -52,15 +89,41 @@ export function PackagesPanel() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
+  // Role management (inline; no browser dialogs).
+  const [creating, setCreating] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [roleBusy, setRoleBusy] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
+
   useEffect(() => {
     fetchPackages();
+    fetchRoles();
     // Global MCP servers populate the allowlist checkboxes. Errors are
     // non-fatal — the admin can still edit everything else.
     api
       .listMcpServers({ scope: 'global' })
       .then((r) => setMcpServers(r.servers))
       .catch(() => setMcpServers([]));
-  }, [fetchPackages]);
+  }, [fetchPackages, fetchRoles]);
+
+  // The tabs come from the roles API; a backend without it still lists its packages.
+  const roleTabs: Role[] = useMemo(
+    () =>
+      roles.length > 0
+        ? roles
+        : packages.map((p) => ({
+            role: p.role,
+            name: p.name ?? p.role.charAt(0).toUpperCase() + p.role.slice(1),
+            builtin: p.builtin ?? true,
+            capabilities: p.capabilities,
+            used_by: 0,
+          })),
+    [roles, packages]
+  );
+  const canManageRoles = roles.length > 0;
+  const activeInfo = roleTabs.find((r) => r.role === activeRole);
 
   const currentPkg: Package | undefined = useMemo(
     () => packages.find((p) => p.role === activeRole),
@@ -83,6 +146,54 @@ export function PackagesPanel() {
   useEffect(() => {
     setSavedAt(null);
   }, [activeRole]);
+
+  const selectRole = (role: UserRole) => {
+    setActiveRole(role);
+    setRenaming(false);
+    setDeleteArmed(false);
+    setRoleError(null);
+  };
+
+  const handleCreated = async (key: string) => {
+    setCreating(false);
+    // Load the new role's package before switching to it, so its draft is built from it.
+    await fetchPackages();
+    selectRole(key);
+  };
+
+  const handleRename = async () => {
+    setRoleBusy(true);
+    setRoleError(null);
+    try {
+      await renameRole(activeRole, newName);
+      setRenaming(false);
+    } catch (err) {
+      setRoleError(err instanceof Error ? err.message : 'Rename failed');
+    } finally {
+      setRoleBusy(false);
+    }
+  };
+
+  // First click arms, second click deletes; a refusal (held by someone) shows inline.
+  const handleDelete = async () => {
+    if (!deleteArmed) {
+      setDeleteArmed(true);
+      setRoleError(null);
+      return;
+    }
+    setRoleBusy(true);
+    setRoleError(null);
+    try {
+      await deleteRole(activeRole);
+      await fetchPackages();
+      selectRole('guest');
+    } catch (err) {
+      setDeleteArmed(false);
+      setRoleError(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setRoleBusy(false);
+    }
+  };
 
   const handleSave = useCallback(async () => {
     if (!draft) return;
@@ -151,7 +262,7 @@ export function PackagesPanel() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-gray-900">Packages</h2>
+        <h2 className="text-xl font-bold text-gray-900">Roles &amp; packages</h2>
         <p className="text-sm text-gray-500 mt-1">
           Capability bundles per user role. Each bundle controls which providers,
           MCP servers, sidebar items, and quotas the gpt app exposes to users in
@@ -162,27 +273,125 @@ export function PackagesPanel() {
       {error && (
         <div className="p-3 bg-red-100 text-red-700 rounded-md text-sm">{error}</div>
       )}
+      {rolesError && (
+        <div className="p-3 bg-amber-50 text-amber-800 rounded-md text-sm">
+          Roles could not be listed ({rolesError}); creating, renaming and deleting roles is unavailable.
+        </div>
+      )}
 
       {/* Role sub-tabs */}
       <div className="border-b border-gray-200">
-        <nav className="flex -mb-px">
-          {ROLES.map((role) => (
+        <nav className="flex flex-wrap items-end -mb-px">
+          {roleTabs.map((r) => (
             <button
-              key={role}
-              onClick={() => setActiveRole(role)}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors capitalize ${
-                activeRole === role
+              key={r.role}
+              onClick={() => selectRole(r.role)}
+              title={r.role}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeRole === r.role
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              {role}
+              {r.name}
             </button>
           ))}
+          {canManageRoles && (
+            <button
+              type="button"
+              onClick={() => setCreating((v) => !v)}
+              className="ml-2 mb-2 px-3 py-1.5 text-sm font-medium text-blue-700 bg-white border border-blue-300 rounded-md hover:bg-blue-50"
+            >
+              + New role
+            </button>
+          )}
         </nav>
       </div>
 
-      <div className="text-sm text-gray-500">{ROLE_DESCRIPTIONS[activeRole]}</div>
+      {creating && (
+        <NewRoleForm
+          roles={roleTabs}
+          initialCopyFrom={activeRole}
+          onCreate={createRole}
+          onCreated={handleCreated}
+          onCancel={() => setCreating(false)}
+        />
+      )}
+
+      {/* Active role: description, rename, delete */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="text-sm text-gray-500">
+          {ROLE_DESCRIPTIONS[activeRole] ?? 'Custom role.'}
+          {activeInfo && activeRole !== ROBOT_ROLE && canManageRoles && (
+            <span className="ml-2 text-gray-400">
+              Key <code className="font-mono">{activeRole}</code> · held by {activeInfo.used_by}{' '}
+              {activeInfo.used_by === 1 ? 'person' : 'people'}
+            </span>
+          )}
+        </div>
+        {canManageRoles && activeInfo && (
+          <div className="flex items-center gap-2">
+            {renaming ? (
+              <>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  maxLength={100}
+                  autoFocus
+                  className="px-2 py-1 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleRename}
+                  disabled={roleBusy || newName.trim() === ''}
+                  className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Save name
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setRenaming(false); setRoleError(null); }}
+                  className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewName(activeInfo.name);
+                  setRenaming(true);
+                  setDeleteArmed(false);
+                  setRoleError(null);
+                }}
+                className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+              >
+                Rename
+              </button>
+            )}
+            {!activeInfo.builtin && !renaming && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                onBlur={() => setDeleteArmed(false)}
+                disabled={roleBusy}
+                className={`px-3 py-1 text-sm rounded-md disabled:opacity-50 ${
+                  deleteArmed
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-white text-red-700 border border-red-300 hover:bg-red-50'
+                }`}
+              >
+                {deleteArmed ? `Click again to delete ${activeInfo.name}` : 'Delete role'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {roleError && (
+        <div className="p-3 bg-red-100 text-red-700 rounded-md text-sm">{roleError}</div>
+      )}
 
       {draft && currentPkg && (
         <PackageForm
@@ -227,6 +436,124 @@ export function PackagesPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Inline "New role" form: a name, a key suggested from it (editable), and the
+ * role whose capabilities the new role starts from.
+ */
+function NewRoleForm({
+  roles,
+  initialCopyFrom,
+  onCreate,
+  onCreated,
+  onCancel,
+}: {
+  roles: Role[];
+  initialCopyFrom: string;
+  onCreate: (key: string, name: string, copyFrom: string | null) => Promise<Role>;
+  onCreated: (key: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [key, setKey] = useState('');
+  const [keyEdited, setKeyEdited] = useState(false);
+  const [copyFrom, setCopyFrom] = useState(initialCopyFrom);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const keyValid = key.length <= ROLE_KEY_MAX && ROLE_KEY_RE.test(key);
+  const canCreate = !busy && name.trim() !== '' && keyValid;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canCreate) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const created = await onCreate(key, name.trim(), copyFrom || null);
+      onCreated(created.role);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : 'Create failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+      <h3 className="text-sm font-semibold text-gray-800">New role</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!keyEdited) setKey(roleKeyFromName(e.target.value));
+            }}
+            maxLength={100}
+            autoFocus
+            placeholder="Sales team"
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Key</label>
+          <input
+            type="text"
+            value={key}
+            onChange={(e) => {
+              setKey(e.target.value);
+              setKeyEdited(true);
+            }}
+            maxLength={ROLE_KEY_MAX}
+            placeholder="sales-team"
+            className={`w-full px-3 py-1.5 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono ${
+              key !== '' && !keyValid ? 'border-red-400' : 'border-gray-300'
+            }`}
+          />
+          {key !== '' && !keyValid && (
+            <p className="text-xs text-red-600 mt-1">
+              Lowercase letters and digits, words separated by single dashes.
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Start as a copy of</label>
+          <select
+            value={copyFrom}
+            onChange={(e) => setCopyFrom(e.target.value)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            {roles.map((r) => (
+              <option key={r.role} value={r.role}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {err && <div className="p-2 bg-red-100 text-red-700 rounded-md text-sm">{err}</div>}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!canCreate}
+          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {busy ? 'Creating…' : 'Create role'}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -452,7 +779,7 @@ function PackageForm({
             <div key={key} className="flex items-center justify-between">
               <span className="text-sm text-gray-700">{label}</span>
               <Switch
-                checked={draft.sidebar[key]}
+                checked={!!draft.sidebar[key]}
                 onChange={(v) => setSidebar(key, v)}
                 size="sm"
               />
@@ -496,6 +823,16 @@ function PackageForm({
               <Switch
                 checked={draft.avatar}
                 onChange={(v) => patch({ avatar: v })}
+                size="sm"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-700" title="People in this role can publish playbooks to the robot">
+                Use the robot
+              </span>
+              <Switch
+                checked={!!draft.use_robot}
+                onChange={(v) => patch({ use_robot: v })}
                 size="sm"
               />
             </div>

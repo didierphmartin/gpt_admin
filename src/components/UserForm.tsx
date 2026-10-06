@@ -1,5 +1,15 @@
 import { useState, useEffect } from 'react';
+import { ROBOT_ROLE } from '../types';
 import type { User } from '../types';
+import { useRoles } from '../hooks/useRoles';
+
+// Shown when the backend has no roles API (or it failed).
+const FALLBACK_ROLES = [
+  { role: 'guest', name: 'Guest' },
+  { role: 'prospect', name: 'Prospect' },
+  { role: 'user', name: 'User' },
+  { role: 'admin', name: 'Admin' },
+];
 
 interface UserFormProps {
   user: User | null;
@@ -14,8 +24,23 @@ export function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<string>('user');
   const [submitting, setSubmitting] = useState(false);
+  const { roles, fetchRoles } = useRoles();
 
   const isEditing = !!user;
+
+  useEffect(() => {
+    fetchRoles();
+  }, [fetchRoles]);
+
+  // Every role but the robot's (a service account, never a person's role). A
+  // role the user holds that is not listed (e.g. affiliate) stays selectable,
+  // so saving the form doesn't change it.
+  const options = (roles.length > 0 ? roles : FALLBACK_ROLES)
+    .filter((r) => r.role !== ROBOT_ROLE)
+    .map((r) => ({ role: r.role, name: r.name }));
+  if (role && !options.some((o) => o.role === role)) {
+    options.push({ role, name: role });
+  }
 
   useEffect(() => {
     if (user) {
@@ -95,10 +120,11 @@ export function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
               onChange={(e) => setRole(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="guest">Guest</option>
-              <option value="prospect">Prospect</option>
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
+              {options.map((o) => (
+                <option key={o.role} value={o.role}>
+                  {o.name}
+                </option>
+              ))}
             </select>
           </div>
           <div>

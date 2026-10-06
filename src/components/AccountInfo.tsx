@@ -98,7 +98,8 @@ export function AccountInfo({ userId }: AccountInfoProps) {
   }
 
   const planClass = PLAN_STYLES[account.plan] || PLAN_STYLES.free;
-  const roleClass = ROLE_STYLES[account.role] || ROLE_STYLES.user;
+  // A custom role has no style of its own: neutral, not the 'user' green.
+  const roleClass = ROLE_STYLES[account.role] || 'bg-gray-100 text-gray-700 border-gray-300';
   const fullName = [account.first_name, account.last_name].filter(Boolean).join(' ') || '—';
   const percent = account.free_quota_percent ?? 0;
   const percentClamped = Math.min(100, Math.max(0, percent));

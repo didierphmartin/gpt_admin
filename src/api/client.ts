@@ -435,7 +435,7 @@ export async function clearUserMcpOverride(userId: number, serverId: number) {
 }
 
 // Packages (role-based capability bundles)
-import type { Package, PackageCapabilities } from '../types';
+import type { Package, PackageCapabilities, Role } from '../types';
 
 export async function listPackages() {
   return request<{ success: boolean; packages: Package[] }>(`${API_BASE}/packages`);
@@ -450,6 +450,31 @@ export async function updatePackage(role: string, capabilities: PackageCapabilit
     method: 'PUT',
     body: JSON.stringify({ capabilities }),
   });
+}
+
+// Roles (custom roles; capabilities are still edited through /packages/{role}).
+// Errors come back as { error, kind } (invalid_key, invalid_name, exists,
+// not_found, builtin, in_use); the error text is shown as is (in_use names the users).
+export async function listRoles() {
+  return (await request<{ success: boolean; data: Role[] }>(`${API_BASE}/roles`)).data;
+}
+
+export async function createRole(role: string, name: string, copyFrom?: string | null) {
+  return (await request<{ success: boolean; data: Role }>(`${API_BASE}/roles`, {
+    method: 'POST',
+    body: JSON.stringify({ role, name, copy_from: copyFrom ?? null }),
+  })).data;
+}
+
+export async function renameRole(role: string, name: string) {
+  return (await request<{ success: boolean; data: Role }>(`${API_BASE}/roles/${encodeURIComponent(role)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  })).data;
+}
+
+export async function deleteRole(role: string) {
+  await request<{ success: boolean }>(`${API_BASE}/roles/${encodeURIComponent(role)}`, { method: 'DELETE' });
 }
 
 // Legacy scoped App Keys CRUD removed during the merge to a single per-user

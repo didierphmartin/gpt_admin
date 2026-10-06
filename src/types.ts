@@ -1,5 +1,11 @@
 // User types
-export type UserRole = 'guest' | 'prospect' | 'user' | 'admin';
+// A role key: a built-in role (guest, prospect, user, admin, robot) or a custom
+// one created on the Roles & packages page (`^[a-z0-9]+(-[a-z0-9]+)*$`).
+export type UserRole = string;
+
+// The built-in roles; the robot is the service account, never a person's role.
+export const BUILTIN_ROLES = ['guest', 'prospect', 'user', 'admin', 'robot'] as const;
+export const ROBOT_ROLE = 'robot';
 
 export interface User {
   id: number;
@@ -88,12 +94,27 @@ export interface PackageCapabilities {
   quota_tokens: number | null;
   voice: boolean;
   avatar: boolean;
+  // People in this role may publish playbooks to the robot (default false).
+  use_robot?: boolean;
 }
 
 export interface Package {
   role: UserRole;
+  // Display name and built-in flag (absent on backends without custom roles).
+  name?: string;
+  builtin?: boolean;
   capabilities: PackageCapabilities;
   updated_at: string | null;
+}
+
+// A role as GET /api/v1/admin/roles lists it (built-ins first).
+export interface Role {
+  role: UserRole;
+  name: string;
+  builtin: boolean;
+  capabilities: Partial<PackageCapabilities>;
+  // How many people (not the robot) hold the role.
+  used_by: number;
 }
 
 // Provider settings types
