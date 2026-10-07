@@ -123,11 +123,14 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false, 
 interface DecisionFormProps {
   provider: LLMProviderConfig | null;
   protocols: DecisionProtocol[];
+  // sort_order for a NEW row: after every existing decision row, so adding one
+  // never takes over as the default provider of unset dispatchers.
+  nextSortOrder: number;
   onSave: (provider: Partial<LLMProviderConfig>) => Promise<boolean>;
   onCancel: () => void;
 }
 
-function DecisionForm({ provider, protocols, onSave, onCancel }: DecisionFormProps) {
+function DecisionForm({ provider, protocols, nextSortOrder, onSave, onCancel }: DecisionFormProps) {
   const isNew = provider === null;
   const [providerKey, setProviderKey] = useState(provider?.provider_key ?? '');
   const [protocolId, setProtocolId] = useState(provider?.protocol ?? protocols[0]?.id ?? '');
@@ -165,7 +168,7 @@ function DecisionForm({ provider, protocols, onSave, onCancel }: DecisionFormPro
       price_output_per_1m: priceOut.trim() === '' ? (inputPrice === null ? null : 0) : Number(priceOut),
       supported_models: provider?.supported_models ?? [],
       system_prompt: provider?.system_prompt ?? null,
-      sort_order: provider?.sort_order ?? 100,
+      sort_order: provider?.sort_order ?? nextSortOrder,
       enabled,
       api_format: ROUTER_API_FORMAT,
     });
@@ -631,6 +634,10 @@ export function LLMSettingsPanel() {
   // Router rows are decision providers: same grid, after the chat providers.
   const chatProviders = providers.filter((p) => !isRouterRow(p));
   const routerProviders = providers.filter(isRouterRow);
+  // The first enabled decision row (sort_order, then key) is the default provider.
+  const nextDecisionSortOrder = (routerProviders.length > 0
+    ? Math.max(...routerProviders.map((p) => Number(p.sort_order ?? 0)))
+    : 100) + 1;
 
   useEffect(() => {
     fetchProviders();
@@ -753,6 +760,7 @@ export function LLMSettingsPanel() {
         <DecisionForm
           provider={null}
           protocols={protocols}
+          nextSortOrder={nextDecisionSortOrder}
           onSave={async (p) => { const ok = await handleSave(p); if (ok) setAddKind(null); return ok; }}
           onCancel={() => setAddKind(null)}
         />
@@ -761,6 +769,7 @@ export function LLMSettingsPanel() {
         <DecisionForm
           provider={editingProvider as LLMProviderConfig}
           protocols={protocols}
+          nextSortOrder={nextDecisionSortOrder}
           onSave={handleSave}
           onCancel={() => setShowForm(false)}
         />
