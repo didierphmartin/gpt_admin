@@ -17,7 +17,7 @@ interface ProviderCardProps {
   onEdit: (provider: LLMProviderConfig) => void;
   onToggle: (providerKey: string, enabled: boolean) => void;
   onDelete: (providerKey: string) => void;
-  // Decision provider (Jev): routes instead of chatting, so no tokens/temperature.
+  // Decision provider: routes instead of chatting, so no tokens/temperature.
   decision?: boolean;
   // Decision row whose protocol is missing from the registry.
   protocolUnset?: boolean;
@@ -203,6 +203,7 @@ function DecisionForm({ provider, protocols, onSave, onCancel }: DecisionFormPro
               onChange={(e) => setProtocolId(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             >
+              <option value="" disabled>Select protocol…</option>
               {protocols.map((p) => (
                 <option key={p.id} value={p.id}>{p.label}</option>
               ))}
@@ -298,7 +299,7 @@ function DecisionForm({ provider, protocols, onSave, onCancel }: DecisionFormPro
             </button>
             <button
               type="submit"
-              disabled={saving || !keyValid || !protocolId}
+              disabled={saving || (isNew && !keyValid) || !protocolId}
               className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save'}
@@ -627,7 +628,7 @@ export function LLMSettingsPanel() {
   const { protocols, byId } = useDecisionProtocols();
   const [addKind, setAddKind] = useState<null | 'choose' | 'llm' | 'decision'>(null);
   const [seeding, setSeeding] = useState(false);
-  // Router rows (Jev) are Decision providers: same grid, after the chat providers.
+  // Router rows are decision providers: same grid, after the chat providers.
   const chatProviders = providers.filter((p) => !isRouterRow(p));
   const routerProviders = providers.filter(isRouterRow);
 
