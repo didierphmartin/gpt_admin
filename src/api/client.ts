@@ -263,7 +263,7 @@ export async function deleteApiKey(userId: number, provider: string) {
 }
 
 // System LLM Settings
-import type { LLMProviderConfig } from '../types';
+import type { LLMProviderConfig, DecisionProtocol } from '../types';
 
 export async function getLLMSettings() {
   return request<{ success: boolean; providers: LLMProviderConfig[]; source: string }>(
@@ -313,6 +313,10 @@ export async function seedLLMFromConfig() {
       method: 'POST',
     }
   );
+}
+
+export async function getDecisionProtocols() {
+  return request<{ success: boolean; protocols: DecisionProtocol[] }>(`${API_BASE}/decision-protocols`);
 }
 
 // MCP Servers

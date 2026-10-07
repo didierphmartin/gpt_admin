@@ -189,6 +189,15 @@ export function isRouterRow(row: { api_format?: string | null }): boolean {
   return row.api_format === ROUTER_API_FORMAT;
 }
 
+/** A protocol a decision-provider row can speak (GET /admin/decision-protocols). */
+export interface DecisionProtocol {
+  id: string;
+  label: string;
+  url: string;
+  model: string;
+  console_url: string;
+}
+
 export type ApiKeys = Record<LLMProvider | RouterProvider, ApiKeyInfo>;
 
 // Avatar/Voice provider names
@@ -217,6 +226,7 @@ export interface LLMProviderConfig {
   supports_tools: boolean;
   supported_models: string[];
   api_format: 'openai' | 'anthropic' | 'gemini' | typeof ROUTER_API_FORMAT;
+  protocol?: string | null;
   system_prompt: string | null;
   enabled: boolean;
   sort_order: number;
