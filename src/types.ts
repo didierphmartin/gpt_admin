@@ -176,17 +176,21 @@ export interface ApiKeySavePayload {
   enabled?: boolean;
 }
 
-export type LLMProvider = 'claude' | 'openai' | 'gemini' | 'grok' | 'deepseek' | 'kimi' | 'gamma4';
-
-// Routers (Jev) store a key like an LLM provider but are NOT chat providers:
-// they never belong in LLM_PROVIDERS, a model/price list or fill-from-global.
-export type RouterProvider = 'jev';
-export const ROUTER_PROVIDERS: RouterProvider[] = ['jev'];
+// Decision rows store a key like an LLM provider but are NOT chat providers:
+// they never belong in a model/price list or fill-from-global.
 // system_llm_settings.api_format of a router row; the backend requires it on every save of one.
 export const ROUTER_API_FORMAT = 'router';
 
 export function isRouterRow(row: { api_format?: string | null }): boolean {
   return row.api_format === ROUTER_API_FORMAT;
+}
+
+/** Row keys of one kind, admin order: chat rows (kind 'llm') or decision rows (kind 'decision'). */
+export function providerKeysOf(rows: LLMProviderConfig[], kind: 'llm' | 'decision'): string[] {
+  return [...rows]
+    .filter((r) => (kind === 'decision') === isRouterRow(r))
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.provider_key.localeCompare(b.provider_key))
+    .map((r) => r.provider_key);
 }
 
 /** A protocol a decision-provider row can speak (GET /admin/decision-protocols). */
@@ -198,12 +202,11 @@ export interface DecisionProtocol {
   console_url: string;
 }
 
-export type ApiKeys = Record<LLMProvider | RouterProvider, ApiKeyInfo>;
+export type ApiKeys = Record<string, ApiKeyInfo>;
 
 // Avatar/Voice provider names
 export const AVATAR_PROVIDERS = ['did', 'anam', 'heygen', 'tavus'] as const;
 export const VOICE_PROVIDERS = ['grok', 'gemini', 'hume', 'elevenlabs'] as const;
-export const LLM_PROVIDERS: LLMProvider[] = ['claude', 'openai', 'gemini', 'grok', 'deepseek', 'kimi', 'gamma4'];
 
 export type AvatarProvider = typeof AVATAR_PROVIDERS[number];
 export type VoiceProvider = typeof VOICE_PROVIDERS[number];

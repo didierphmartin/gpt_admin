@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import * as api from '../api/client';
 
 interface OverallStats {
   total_requests: number;
@@ -164,6 +165,11 @@ import { getApiV1Base } from '../lib/backendConfig';
 const API_BASE = getApiV1Base();
 
 export function UsageStats() {
+  // Every configured provider row (chat + decision), for the provider filter.
+  const [providerRows, setProviderRows] = useState<{ provider_key: string; display_name?: string }[]>([]);
+  useEffect(() => {
+    api.getLLMSettings().then((res) => setProviderRows(res.providers || [])).catch(() => setProviderRows([]));
+  }, []);
   const { token } = useAuth();
   const [view, setView] = useState<View>('overview');
   const [period, setPeriod] = useState<Period>('month');
@@ -500,7 +506,6 @@ export function UsageStats() {
       grok: 'bg-orange-100 text-orange-800',
       kimi: 'bg-pink-100 text-pink-800',
       deepseek: 'bg-cyan-100 text-cyan-800',
-      jev: 'bg-teal-100 text-teal-800',
     };
     return colors[provider] || 'bg-gray-100 text-gray-800';
   };
@@ -993,13 +998,9 @@ export function UsageStats() {
               className="px-3 py-2 border border-gray-300 rounded-md text-sm"
             >
               <option value="">All Providers</option>
-              <option value="claude">Claude</option>
-              <option value="openai">OpenAI</option>
-              <option value="gemini">Gemini</option>
-              <option value="grok">Grok</option>
-              <option value="kimi">Kimi</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="jev">Jev</option>
+              {providerRows.map((r) => (
+                <option key={r.provider_key} value={r.provider_key}>{r.display_name || r.provider_key}</option>
+              ))}
             </select>
             <select
               value={transactionFilters.status}

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useApiKeys } from '../hooks/useApiKeys';
-import { LLM_PROVIDERS, ROUTER_PROVIDERS } from '../types';
-import type { ApiKeyInfo, ApiKeySavePayload, LLMProvider, LLMProviderConfig, RouterProvider } from '../types';
+import { providerKeysOf } from '../types';
+import type { ApiKeyInfo, ApiKeySavePayload, LLMProviderConfig } from '../types';
+import { useDecisionProtocols } from '../hooks/useDecisionProtocols';
 import { useModelCatalog } from '../lib/modelCatalog';
 import * as api from '../api/client';
 
@@ -9,7 +10,7 @@ interface ApiKeysSettingsProps {
   userId: number;
 }
 
-const PROVIDER_INFO: Record<LLMProvider | RouterProvider, { label: string; color: string }> = {
+const PROVIDER_INFO: Record<string, { label: string; color: string }> = {
   claude: { label: 'Claude (Anthropic)', color: 'bg-orange-100 border-orange-300' },
   openai: { label: 'OpenAI', color: 'bg-green-100 border-green-300' },
   gemini: { label: 'Gemini (Google)', color: 'bg-blue-100 border-blue-300' },
@@ -17,7 +18,6 @@ const PROVIDER_INFO: Record<LLMProvider | RouterProvider, { label: string; color
   deepseek: { label: 'DeepSeek', color: 'bg-cyan-100 border-cyan-300' },
   kimi: { label: 'Kimi (Moonshot)', color: 'bg-pink-100 border-pink-300' },
   gamma4: { label: 'Gamma4', color: 'bg-yellow-100 border-yellow-300' },
-  jev: { label: 'Jev (dispatcher routing)', color: 'bg-teal-100 border-teal-300' },
 };
 
 interface FormState {
@@ -59,7 +59,7 @@ function formToPayload(form: FormState, original: ApiKeyInfo | undefined, keyOnl
   if (trimmedKey && (!userHadOwnKey || trimmedKey !== (original?.api_key ?? ''))) {
     payload.api_key = trimmedKey;
   }
-  // A router key (Jev) has no model, prompt or sampling settings; its URL
+  // A decision key has no model, prompt or sampling settings; its URL
   // (a gateway in front of Jev) it does.
   if (keyOnly) {
     payload.base_url = form.base_url.trim() || null;
@@ -94,16 +94,18 @@ function applyGlobal(form: FormState, global: LLMProviderConfig): FormState {
 }
 
 interface ApiKeyCardProps {
-  provider: LLMProvider | RouterProvider;
-  /** Router key (Jev): the card shows and saves the key only. */
+  provider: string;
+  /** Decision key: the card shows and saves the key only. */
   keyOnly?: boolean;
   info: ApiKeyInfo | undefined;
   globalConfig?: LLMProviderConfig;
+  /** Default API URL of the row's decision protocol, shown as the placeholder. */
+  protocolUrl?: string;
   onSave: (payload: ApiKeySavePayload) => Promise<boolean>;
   onDelete: () => Promise<boolean>;
 }
 
-function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onDelete }: ApiKeyCardProps) {
+function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, protocolUrl, onSave, onDelete }: ApiKeyCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState<FormState>(() => toForm(info));
   const [saving, setSaving] = useState(false);
@@ -111,7 +113,10 @@ function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onD
   const { catalog } = useModelCatalog();
   const modelSuggestions = (catalog[provider] ?? []).map((m) => m.id);
 
-  const providerInfo = PROVIDER_INFO[provider];
+  const providerInfo = PROVIDER_INFO[provider] ?? {
+    label: globalConfig?.display_name || provider,
+    color: 'bg-gray-100 border-gray-300',
+  };
   const hasKey = !!info?.api_key;
   // Where the displayed key comes from for this user (set by the backend overlay).
   const source = info?.source ?? (hasKey ? 'user' : 'none');
@@ -218,7 +223,7 @@ function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onD
                 value={form.base_url}
                 onChange={(e) => update('base_url', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
-                placeholder={globalConfig?.base_url || 'https://api.typesafe.ai/v1/systemone'}
+                placeholder={globalConfig?.base_url || protocolUrl || ''}
               />
             </Field>
           )}
@@ -378,7 +383,7 @@ function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onD
             <div>
               <p className="text-sm text-gray-500 mb-2">
                 {keyOnly
-                  ? 'No personal key: Dispatcher routing uses the global Jev key, if one is set.'
+                  ? 'No personal key: this decision model uses the package or global key, if one is set.'
                   : 'Not available from this user’s package.'}
               </p>
               <button
@@ -458,6 +463,7 @@ function globalToPayload(global: LLMProviderConfig): ApiKeySavePayload {
 
 export function ApiKeysSettings({ userId }: ApiKeysSettingsProps) {
   const { keys, loading, error, fetchKeys, saveKeys, deleteKey } = useApiKeys(userId);
+  const { byId } = useDecisionProtocols();
   const [globalConfigs, setGlobalConfigs] = useState<Record<string, LLMProviderConfig>>({});
   const [applyingAll, setApplyingAll] = useState(false);
   const [applyAllStatus, setApplyAllStatus] = useState<string | null>(null);
@@ -478,7 +484,11 @@ export function ApiKeysSettings({ userId }: ApiKeysSettingsProps) {
       });
   }, []);
 
-  const applicableProviders = LLM_PROVIDERS.filter(
+  const rows = Object.values(globalConfigs);
+  const llmKeys = providerKeysOf(rows, 'llm');
+  const decisionKeys = providerKeysOf(rows, 'decision');
+
+  const applicableProviders = llmKeys.filter(
     (p) => globalConfigs[p] && keys?.[p]?.api_key
   );
 
@@ -536,7 +546,7 @@ export function ApiKeysSettings({ userId }: ApiKeysSettingsProps) {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {LLM_PROVIDERS.map((provider) => {
+        {llmKeys.map((provider) => {
           const info = keys?.[provider];
           return (
             <ApiKeyCard
@@ -550,18 +560,19 @@ export function ApiKeysSettings({ userId }: ApiKeysSettingsProps) {
           );
         })}
       </div>
-      <h3 className="text-lg font-semibold text-gray-800 mt-8">Dispatcher routing</h3>
+      <h3 className="text-lg font-semibold text-gray-800 mt-8">Decision models</h3>
       <p className="text-sm text-gray-500 mt-1 mb-4">
-        Jev routes Dispatcher agents instead of a model. Not a chat provider; this user&apos;s key wins over the global one.
+        Decision models route Dispatcher agents instead of a model. A personal key here overrides the package and global key for this user.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {ROUTER_PROVIDERS.map((provider) => (
+        {decisionKeys.map((provider) => (
           <ApiKeyCard
             key={provider}
             provider={provider}
             keyOnly
             info={keys?.[provider]}
             globalConfig={globalConfigs[provider]}
+            protocolUrl={byId[globalConfigs[provider]?.protocol ?? '']?.url}
             onSave={(payload) => saveKeys({ [provider]: payload })}
             onDelete={() => deleteKey(provider)}
           />

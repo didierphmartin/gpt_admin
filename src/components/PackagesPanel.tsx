@@ -3,11 +3,12 @@ import { usePackages } from '../hooks/usePackages';
 import { useRoles } from '../hooks/useRoles';
 import { Switch } from './Switch';
 import * as api from '../api/client';
-import { isRouterRow, ROBOT_ROLE, ROUTER_PROVIDERS } from '../types';
+import { isRouterRow, providerKeysOf, ROBOT_ROLE } from '../types';
 import type {
   McpServer,
 } from '../api/client';
 import type {
+  LLMProviderConfig,
   Package,
   PackageCapabilities,
   PackageSidebarFlags,
@@ -38,8 +39,6 @@ function roleKeyFromName(name: string): string {
     .slice(0, ROLE_KEY_MAX)
     .replace(/^-+|-+$/g, '');
 }
-
-const PROVIDER_KEYS = ['claude', 'openai', 'gemini', 'grok', 'deepseek', 'kimi', 'gamma4'] as const;
 
 const SIDEBAR_KEYS: { key: keyof PackageSidebarFlags; label: string }[] = [
   { key: 'conversations', label: 'Conversations' },
@@ -228,7 +227,7 @@ export function PackagesPanel() {
       let changed = 0;
       for (const p of res.providers) {
         const key = p.provider_key;
-        // A router row (Jev) is not a chat provider: copy only its key, never a
+        // A decision row is not a chat provider: copy only its key, never a
         // model, and never touch its enabled switch.
         if (isRouterRow(p)) {
           const routerKey = p.api_key ? String(p.api_key).trim() : '';
@@ -576,10 +575,16 @@ function PackageForm({
 }: PackageFormProps) {
   const patch = (partial: Partial<PackageCapabilities>) => onChange({ ...draft, ...partial });
 
+  // The configured provider rows (chat + decision), loaded once; they order and split the lists below.
+  const [llmRows, setLlmRows] = useState<LLMProviderConfig[]>([]);
+  useEffect(() => {
+    api.getLLMSettings().then((res) => setLlmRows(res.providers || [])).catch(() => setLlmRows([]));
+  }, []);
+
   // Provider list is data-driven from the shared model catalog (served from model_catalog.json,
   // kept in sync with system_llm_settings), so a provider added there appears here automatically —
-  // no hardcoded list. PROVIDER_KEYS is only the fallback shown while the catalog is still loading.
-  const providerKeys = Object.keys(catalog).length > 0 ? Object.keys(catalog) : [...PROVIDER_KEYS];
+  // no hardcoded list. The configured chat rows are only the fallback shown while the catalog is still loading.
+  const providerKeys = Object.keys(catalog).length > 0 ? Object.keys(catalog) : providerKeysOf(llmRows, 'llm');
 
   // Which provider keys are currently shown in plaintext (eye toggled on).
   // Form-local state; resets when the panel remounts (e.g. role switch).
@@ -621,7 +626,7 @@ function PackageForm({
     patch({ mcp_servers: Array.from(next) });
   };
 
-  // One provider row. keyOnly (router rows such as Jev) drops the model select.
+  // One provider row. keyOnly (decision rows) drops the model select.
   const renderProviderRow = (key: string, keyOnly = false) => {
             const cfg = draft.providers[key] ?? { enabled: false };
             const providerModels = catalog[key] ?? [];
@@ -724,13 +729,13 @@ function PackageForm({
           {providerKeys.map((key) => renderProviderRow(key))}
         </div>
         <div className="mt-5 pt-4 border-t border-gray-300">
-          <h4 className="text-sm font-semibold text-gray-800">Dispatcher routing</h4>
+          <h4 className="text-sm font-semibold text-gray-800">Decision models</h4>
           <p className="text-xs text-gray-500 mt-1 mb-3">
-            Jev routes Dispatcher agents instead of calling a model. Switch it on for this role and
+            Decision models route Dispatcher agents instead of calling a model. Switch one on for this role and
             optionally supply a default key (a user&apos;s own key wins over it).
           </p>
           <div className="space-y-3">
-            {ROUTER_PROVIDERS.map((key) => renderProviderRow(key, true))}
+            {providerKeysOf(llmRows, 'decision').map((key) => renderProviderRow(key, true))}
           </div>
         </div>
       </Section>
@@ -876,7 +881,7 @@ function Section({
 function CostChart({ draft, catalog }: { draft: PackageCapabilities; catalog: Catalog }) {
   type Row = { provider: string; model: ModelChoice };
   const rows: Row[] = [];
-  for (const key of PROVIDER_KEYS) {
+  for (const key of Object.keys(draft.providers)) {
     const cfg = draft.providers[key];
     if (!cfg?.enabled || !cfg.default_model) continue;
     const model = catalog[key]?.find((m) => m.id === cfg.default_model);
