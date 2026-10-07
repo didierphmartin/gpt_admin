@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLLMSettings } from '../hooks/useLLMSettings';
 import { useModelCatalog } from '../lib/modelCatalog';
-import { isRouterRow, ROUTER_API_FORMAT, ROUTER_PROVIDERS } from '../types';
-import type { RouterProvider } from '../types';
-import type { LLMProviderConfig } from '../types';
+import { useDecisionProtocols } from '../hooks/useDecisionProtocols';
+import { isRouterRow, ROUTER_API_FORMAT } from '../types';
+import type { DecisionProtocol, LLMProviderConfig } from '../types';
 
 // A provider row whose stored price is null falls back to the catalog price
 // for its model, so the admin still sees what the model costs.
@@ -12,10 +12,6 @@ function formatPrice(stored: number | null | undefined, catalogPrice: number | u
   return price != null ? `$${Number(price).toFixed(2)}` : '—';
 }
 
-// The Jev endpoint JevRouter calls when the router row stores no URL; a
-// gateway in front of Jev is stored as the row's full base_url.
-const JEV_API_URL = 'https://api.typesafe.ai/v1/systemone';
-
 interface ProviderCardProps {
   provider: LLMProviderConfig;
   onEdit: (provider: LLMProviderConfig) => void;
@@ -23,9 +19,13 @@ interface ProviderCardProps {
   onDelete: (providerKey: string) => void;
   // Decision provider (Jev): routes instead of chatting, so no tokens/temperature.
   decision?: boolean;
+  // Decision row whose protocol is missing from the registry.
+  protocolUnset?: boolean;
+  // The protocol's vendor URL, shown when the decision row stores none.
+  protocolUrl?: string;
 }
 
-function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }: ProviderCardProps) {
+function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false, protocolUrl, protocolUnset = false }: ProviderCardProps) {
   const { catalog } = useModelCatalog();
   const entry = (catalog[provider.provider_key] ?? []).find((m) => m.id === provider.model);
   return (
@@ -61,10 +61,10 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }
       <div className="space-y-2 text-sm">
         <p><span className="text-gray-500">Model:</span> <span className="font-mono text-gray-800">{provider.model}</span></p>
         {decision ? (
-          // Jev does not use these: shown disabled so the card keeps the LLM layout.
+          // Decision models do not use these: shown disabled so the card keeps the LLM layout.
           <>
-            <p className="text-gray-300 cursor-not-allowed" aria-disabled="true" title="Not used by Jev">Max Tokens</p>
-            <p className="text-gray-300 cursor-not-allowed" aria-disabled="true" title="Not used by Jev">Temperature</p>
+            <p className="text-gray-300 cursor-not-allowed" aria-disabled="true" title="Not used by decision models">Max Tokens</p>
+            <p className="text-gray-300 cursor-not-allowed" aria-disabled="true" title="Not used by decision models">Temperature</p>
           </>
         ) : (
           <>
@@ -85,7 +85,8 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }
         {decision ? (
           <p>
             <span className="text-gray-500">API URL:</span>{' '}
-            <span className="font-mono text-xs break-all">{provider.base_url || JEV_API_URL}</span>
+            <span className="font-mono text-xs break-all">{provider.base_url || protocolUrl || '—'}</span>
+            {protocolUnset && <span className="ml-2 text-xs text-amber-600">⚠ protocol not set</span>}
           </p>
         ) : (provider.base_url || provider.chat_endpoint) && (
           <p>
@@ -119,46 +120,52 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }
   );
 }
 
-interface RouterFormProps {
-  provider: LLMProviderConfig;
+interface DecisionFormProps {
+  provider: LLMProviderConfig | null;
+  protocols: DecisionProtocol[];
   onSave: (provider: Partial<LLMProviderConfig>) => Promise<boolean>;
   onCancel: () => void;
 }
 
-function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
-  const [displayName, setDisplayName] = useState(provider.display_name);
+function DecisionForm({ provider, protocols, onSave, onCancel }: DecisionFormProps) {
+  const isNew = provider === null;
+  const [providerKey, setProviderKey] = useState(provider?.provider_key ?? '');
+  const [protocolId, setProtocolId] = useState(provider?.protocol ?? protocols[0]?.id ?? '');
+  const [displayName, setDisplayName] = useState(provider?.display_name ?? '');
   // Prefilled with the stored key, like the other providers' form.
-  const [apiKey, setApiKey] = useState(provider.api_key ?? '');
-  const [apiUrl, setApiUrl] = useState(provider.base_url ?? '');
-  const [enabled, setEnabled] = useState(provider.enabled);
-  const [priceIn, setPriceIn] = useState(provider.price_input_per_1m == null ? '' : String(provider.price_input_per_1m));
-  const [priceOut, setPriceOut] = useState(provider.price_output_per_1m == null ? '' : String(provider.price_output_per_1m));
+  const [apiKey, setApiKey] = useState(provider?.api_key ?? '');
+  const [apiUrl, setApiUrl] = useState(provider?.base_url ?? '');
+  const [model, setModel] = useState(provider?.model ?? '');
+  const [enabled, setEnabled] = useState(provider?.enabled ?? true);
+  const [priceIn, setPriceIn] = useState(provider?.price_input_per_1m == null ? '' : String(provider.price_input_per_1m));
+  const [priceOut, setPriceOut] = useState(provider?.price_output_per_1m == null ? '' : String(provider.price_output_per_1m));
   const [saving, setSaving] = useState(false);
+  const protocol = protocols.find((p) => p.id === protocolId);
+  const keyValid = /^[a-z0-9][a-z0-9_.-]*$/.test(providerKey);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    // The save endpoint rewrites the whole row, so send the stored values back
-    // unchanged. api_format must be 'router' (the backend defaults a missing
-    // one to 'openai' and rejects that for a router), and model is required.
-    // A blank key keeps the stored one.
+    // The save endpoint rewrites the whole row, so an edit sends the stored
+    // values back unchanged. api_format must be 'router'; a blank model lets
+    // the backend use the protocol default; a blank key keeps the stored one.
     const inputPrice = priceIn.trim() === '' ? null : Number(priceIn);
     const success = await onSave({
-      provider_key: provider.provider_key,
-      display_name: displayName.trim() || provider.display_name,
+      ...(provider ?? {}),
+      provider_key: providerKey,
+      display_name: displayName.trim() || providerKey,
       api_key: apiKey.trim(),
-      // Full Jev URL (a gateway); empty = the vendor URL.
+      // Full vendor URL (a gateway); empty = the protocol's URL.
       base_url: apiUrl.trim() || null,
-      model: provider.model || 'jev-latest',
-      max_tokens: provider.max_tokens,
-      temperature: provider.temperature,
+      model: model.trim(),
+      protocol: protocolId,
       price_input_per_1m: inputPrice,
-      // Jev output tokens are free: an empty output beside a set input price is 0,
-      // not null (a null half makes the whole row read as unpriced).
+      // An empty output beside a set input price is 0, not null (a null half
+      // makes the whole row read as unpriced).
       price_output_per_1m: priceOut.trim() === '' ? (inputPrice === null ? null : 0) : Number(priceOut),
-      supported_models: provider.supported_models ?? [],
-      system_prompt: provider.system_prompt,
-      sort_order: provider.sort_order,
+      supported_models: provider?.supported_models ?? [],
+      system_prompt: provider?.system_prompt ?? null,
+      sort_order: provider?.sort_order ?? 100,
       enabled,
       api_format: ROUTER_API_FORMAT,
     });
@@ -170,9 +177,37 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Edit Dispatcher routing</h3>
+          <h3 className="text-lg font-semibold text-gray-900">{isNew ? 'Add decision model' : `Edit ${provider.display_name}`}</h3>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Key
+              <span className="ml-2 text-xs text-gray-400 font-normal">(lower-case letters, digits, . _ -)</span>
+            </label>
+            <input
+              type="text"
+              value={providerKey}
+              onChange={(e) => setProviderKey(e.target.value)}
+              disabled={!isNew}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono disabled:bg-gray-100"
+            />
+            {isNew && providerKey && !keyValid && (
+              <p className="mt-1 text-xs text-red-600">Use lower-case letters, digits, . _ - only.</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Protocol</label>
+            <select
+              value={protocolId}
+              onChange={(e) => setProtocolId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            >
+              {protocols.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
             <input
@@ -186,7 +221,7 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               API Key
               <span className="ml-2 text-xs text-gray-400 font-normal">
-                {provider.api_key ? '' : '(not set)'}
+                {provider?.api_key ? '' : '(not set)'}
               </span>
             </label>
             <input
@@ -194,21 +229,34 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
-              placeholder="Enter Jev API key"
+              placeholder="Enter API key"
               autoComplete="off"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               API URL
-              <span className="ml-2 text-xs text-gray-400 font-normal">(empty = default; set it to route through a gateway)</span>
+              <span className="ml-2 text-xs text-gray-400 font-normal">(empty = the vendor URL; set it to route through a gateway)</span>
             </label>
             <input
               type="text"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
-              placeholder={JEV_API_URL}
+              placeholder={protocol?.url ?? ''}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Model
+              <span className="ml-2 text-xs text-gray-400 font-normal">(empty = the protocol default)</span>
+            </label>
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+              placeholder={protocol?.model ?? ''}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -229,7 +277,6 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
                 onChange={(e) => setPriceOut(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               />
-              <p className="mt-1 text-xs text-gray-500">Jev output tokens are free — keep 0.</p>
             </div>
           </div>
           <label className="flex items-center gap-2">
@@ -251,7 +298,7 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !keyValid || !protocolId}
               className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save'}
@@ -577,6 +624,8 @@ export function LLMSettingsPanel() {
 
   const [editingProvider, setEditingProvider] = useState<Partial<LLMProviderConfig> | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const { protocols, byId } = useDecisionProtocols();
+  const [addKind, setAddKind] = useState<null | 'choose' | 'llm' | 'decision'>(null);
   const [seeding, setSeeding] = useState(false);
   // Router rows (Jev) are Decision providers: same grid, after the chat providers.
   const chatProviders = providers.filter((p) => !isRouterRow(p));
@@ -598,22 +647,12 @@ export function LLMSettingsPanel() {
     }
   };
 
-  const handleAddNew = () => {
-    setEditingProvider(null);
-    setShowForm(true);
-  };
-
   const handleEdit = (provider: LLMProviderConfig) => {
     setEditingProvider(provider);
     setShowForm(true);
   };
 
-  const handleSave = async (provider: Partial<LLMProviderConfig>) => {
-    // A router key (Jev) re-added through "+ Add Provider" is a router row:
-    // the backend rejects any other api_format for it.
-    const isRouterKey = ROUTER_PROVIDERS.includes(provider.provider_key as RouterProvider);
-    return await saveProvider(isRouterKey ? { ...provider, api_format: ROUTER_API_FORMAT } : provider);
-  };
+  const handleSave = (provider: Partial<LLMProviderConfig>) => saveProvider(provider);
 
   if (loading && providers.length === 0) {
     return <div className="p-4 text-gray-500">Loading LLM providers...</div>;
@@ -639,12 +678,30 @@ export function LLMSettingsPanel() {
               {seeding ? 'Importing...' : 'Import from Config'}
             </button>
           )}
-          <button
-            onClick={handleAddNew}
-            className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
-          >
-            + Add Provider
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setAddKind('choose')}
+              className="px-4 py-2 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
+            >
+              + Add Provider
+            </button>
+            {addKind === 'choose' && (
+              <div className="absolute right-0 mt-2 flex gap-2 bg-white border border-gray-200 rounded-md shadow-lg p-2 z-10">
+                <button
+                  onClick={() => { setEditingProvider(null); setShowForm(true); setAddKind('llm'); }}
+                  className="px-3 py-1.5 text-sm text-blue-600 bg-blue-50 rounded hover:bg-blue-100"
+                >
+                  LLM
+                </button>
+                <button
+                  onClick={() => { setEditingProvider(null); setAddKind('decision'); }}
+                  className="px-3 py-1.5 text-sm text-indigo-700 bg-indigo-50 rounded hover:bg-indigo-100"
+                >
+                  Decision model
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -681,6 +738,8 @@ export function LLMSettingsPanel() {
               key={provider.provider_key}
               provider={provider}
               decision
+              protocolUrl={byId[provider.protocol ?? '']?.url}
+              protocolUnset={protocols.length > 0 && !byId[provider.protocol ?? '']}
               onEdit={handleEdit}
               onToggle={toggleProvider}
               onDelete={deleteProvider}
@@ -689,17 +748,27 @@ export function LLMSettingsPanel() {
         </div>
       )}
 
-      {showForm && editingProvider && isRouterRow(editingProvider) ? (
-        <RouterForm
+      {addKind === 'decision' && (
+        <DecisionForm
+          provider={null}
+          protocols={protocols}
+          onSave={async (p) => { const ok = await handleSave(p); if (ok) setAddKind(null); return ok; }}
+          onCancel={() => setAddKind(null)}
+        />
+      )}
+      {showForm && editingProvider && isRouterRow(editingProvider) && (
+        <DecisionForm
           provider={editingProvider as LLMProviderConfig}
+          protocols={protocols}
           onSave={handleSave}
           onCancel={() => setShowForm(false)}
         />
-      ) : showForm && (
+      )}
+      {showForm && addKind !== 'decision' && !(editingProvider && isRouterRow(editingProvider)) && (
         <ProviderForm
           provider={editingProvider}
-          onSave={handleSave}
-          onCancel={() => setShowForm(false)}
+          onSave={async (p) => { const ok = await handleSave(p); if (ok) setAddKind(null); return ok; }}
+          onCancel={() => { setShowForm(false); setAddKind(null); }}
         />
       )}
     </div>
