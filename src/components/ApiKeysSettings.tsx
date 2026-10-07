@@ -59,8 +59,12 @@ function formToPayload(form: FormState, original: ApiKeyInfo | undefined, keyOnl
   if (trimmedKey && (!userHadOwnKey || trimmedKey !== (original?.api_key ?? ''))) {
     payload.api_key = trimmedKey;
   }
-  // A router key (Jev) has no model, endpoint, prompt or sampling settings.
-  if (keyOnly) return payload;
+  // A router key (Jev) has no model, prompt or sampling settings; its URL
+  // (a gateway in front of Jev) it does.
+  if (keyOnly) {
+    payload.base_url = form.base_url.trim() || null;
+    return payload;
+  }
   payload.model = form.model.trim() || null;
   payload.base_url = form.base_url.trim() || null;
   payload.max_tokens = form.max_tokens.trim() === '' ? null : Number(form.max_tokens);
@@ -207,6 +211,18 @@ function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onD
             </div>
           </Field>
 
+          {keyOnly && (
+            <Field label="API URL" hint="empty = default; used with the user's own key">
+              <input
+                type="text"
+                value={form.base_url}
+                onChange={(e) => update('base_url', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
+                placeholder={globalConfig?.base_url || 'https://api.typesafe.ai/v1/systemone'}
+              />
+            </Field>
+          )}
+
           {!keyOnly && (<>
           <Field label="Model" hint="Pick from suggestions or type a custom value">
             <input
@@ -250,13 +266,16 @@ function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onD
             </Field>
           </div>
 
-          <Field label="Base URL">
+          {/* The user's own entry point (e.g. a gateway serving several
+              providers). Empty = the system-wide link shown as placeholder.
+              Used at chat time only with this user's own key. */}
+          <Field label="Base URL" hint="empty = default; used with the user's own key">
             <input
               type="text"
               value={form.base_url}
               onChange={(e) => update('base_url', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
-              placeholder="https://api.example.com"
+              placeholder={globalConfig?.base_url || 'https://api.example.com'}
             />
           </Field>
 
@@ -266,7 +285,7 @@ function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onD
               value={form.chat_endpoint}
               onChange={(e) => update('chat_endpoint', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
-              placeholder="/v1/chat/completions"
+              placeholder={globalConfig?.chat_endpoint || '/v1/chat/completions'}
             />
           </Field>
 
@@ -329,6 +348,7 @@ function ApiKeyCard({ provider, keyOnly = false, info, globalConfig, onSave, onD
                   </button>
                 </span>
               } />
+              {keyOnly && info?.base_url && <Summary label="API URL" value={<span className="font-mono text-xs break-all">{info.base_url}</span>} />}
               {!keyOnly && (<>
               <Summary label="Model" value={info?.model || <Muted>not set</Muted>} />
               <div className="grid grid-cols-2 gap-x-3">
@@ -541,6 +561,7 @@ export function ApiKeysSettings({ userId }: ApiKeysSettingsProps) {
             provider={provider}
             keyOnly
             info={keys?.[provider]}
+            globalConfig={globalConfigs[provider]}
             onSave={(payload) => saveKeys({ [provider]: payload })}
             onDelete={() => deleteKey(provider)}
           />

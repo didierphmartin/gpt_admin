@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLLMSettings } from '../hooks/useLLMSettings';
 import { useModelCatalog } from '../lib/modelCatalog';
-import { isRouterRow, ROUTER_API_FORMAT } from '../types';
+import { isRouterRow, ROUTER_API_FORMAT, ROUTER_PROVIDERS } from '../types';
+import type { RouterProvider } from '../types';
 import type { LLMProviderConfig } from '../types';
 
 // A provider row whose stored price is null falls back to the catalog price
@@ -11,15 +12,15 @@ function formatPrice(stored: number | null | undefined, catalogPrice: number | u
   return price != null ? `$${Number(price).toFixed(2)}` : '—';
 }
 
-// The backend's JevRouter always calls this endpoint; the router row stores no URL.
+// The Jev endpoint JevRouter calls when the router row stores no URL; a
+// gateway in front of Jev is stored as the row's full base_url.
 const JEV_API_URL = 'https://api.typesafe.ai/v1/systemone';
 
 interface ProviderCardProps {
   provider: LLMProviderConfig;
   onEdit: (provider: LLMProviderConfig) => void;
   onToggle: (providerKey: string, enabled: boolean) => void;
-  // Omitted for a decision (router) card, which cannot be deleted.
-  onDelete?: (providerKey: string) => void;
+  onDelete: (providerKey: string) => void;
   // Decision provider (Jev): routes instead of chatting, so no tokens/temperature.
   decision?: boolean;
 }
@@ -84,7 +85,7 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }
         {decision ? (
           <p>
             <span className="text-gray-500">API URL:</span>{' '}
-            <span className="font-mono text-xs break-all">{JEV_API_URL}</span>
+            <span className="font-mono text-xs break-all">{provider.base_url || JEV_API_URL}</span>
           </p>
         ) : (provider.base_url || provider.chat_endpoint) && (
           <p>
@@ -103,7 +104,6 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }
         >
           Edit
         </button>
-        {onDelete && (
         <button
           onClick={() => {
             if (confirm(`Delete provider "${provider.display_name}"? This cannot be undone.`)) {
@@ -114,7 +114,6 @@ function ProviderCard({ provider, onEdit, onToggle, onDelete, decision = false }
         >
           Delete
         </button>
-        )}
       </div>
     </div>
   );
@@ -128,7 +127,9 @@ interface RouterFormProps {
 
 function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
   const [displayName, setDisplayName] = useState(provider.display_name);
-  const [apiKey, setApiKey] = useState('');
+  // Prefilled with the stored key, like the other providers' form.
+  const [apiKey, setApiKey] = useState(provider.api_key ?? '');
+  const [apiUrl, setApiUrl] = useState(provider.base_url ?? '');
   const [enabled, setEnabled] = useState(provider.enabled);
   const [priceIn, setPriceIn] = useState(provider.price_input_per_1m == null ? '' : String(provider.price_input_per_1m));
   const [priceOut, setPriceOut] = useState(provider.price_output_per_1m == null ? '' : String(provider.price_output_per_1m));
@@ -146,6 +147,8 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
       provider_key: provider.provider_key,
       display_name: displayName.trim() || provider.display_name,
       api_key: apiKey.trim(),
+      // Full Jev URL (a gateway); empty = the vendor URL.
+      base_url: apiUrl.trim() || null,
       model: provider.model || 'jev-latest',
       max_tokens: provider.max_tokens,
       temperature: provider.temperature,
@@ -183,7 +186,7 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               API Key
               <span className="ml-2 text-xs text-gray-400 font-normal">
-                {provider.api_key_masked ? `(blank keeps ${provider.api_key_masked})` : '(not set)'}
+                {provider.api_key ? '' : '(not set)'}
               </span>
             </label>
             <input
@@ -193,6 +196,19 @@ function RouterForm({ provider, onSave, onCancel }: RouterFormProps) {
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
               placeholder="Enter Jev API key"
               autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              API URL
+              <span className="ml-2 text-xs text-gray-400 font-normal">(empty = default; set it to route through a gateway)</span>
+            </label>
+            <input
+              type="text"
+              value={apiUrl}
+              onChange={(e) => setApiUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+              placeholder={JEV_API_URL}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -593,7 +609,10 @@ export function LLMSettingsPanel() {
   };
 
   const handleSave = async (provider: Partial<LLMProviderConfig>) => {
-    return await saveProvider(provider);
+    // A router key (Jev) re-added through "+ Add Provider" is a router row:
+    // the backend rejects any other api_format for it.
+    const isRouterKey = ROUTER_PROVIDERS.includes(provider.provider_key as RouterProvider);
+    return await saveProvider(isRouterKey ? { ...provider, api_format: ROUTER_API_FORMAT } : provider);
   };
 
   if (loading && providers.length === 0) {
@@ -664,6 +683,7 @@ export function LLMSettingsPanel() {
               decision
               onEdit={handleEdit}
               onToggle={toggleProvider}
+              onDelete={deleteProvider}
             />
           ))}
         </div>
