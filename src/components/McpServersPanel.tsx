@@ -256,7 +256,7 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
       setShowForm(false);
       await load();
       if (res.tools_error) {
-        alert(`Saved, but tool discovery returned 0 tools:\n\n${res.tools_error}`);
+        alert(`Saved, but function discovery returned 0 functions:\n\n${res.tools_error}`);
       }
       return { ok: true };
     } catch (e) {
@@ -277,9 +277,9 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
     try {
       const res = await refreshMcpServerTools(s.id);
       if (res.tools_fetched === 0 && res.tools_error) {
-        alert(`Refreshed: 0 tools\n\nServer reported:\n${res.tools_error}`);
+        alert(`Refreshed: 0 functions\n\nServer reported:\n${res.tools_error}`);
       } else {
-        alert(`Refreshed: ${res.tools_fetched} tools`);
+        alert(`Refreshed: ${res.tools_fetched} functions`);
       }
       await load();
     } catch (e) {
@@ -347,7 +347,7 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
       <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
         <button onClick={() => setTestServer(s)} title="Test" aria-label="Test" className="px-2 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded">🧪</button>
         <button onClick={() => startEdit(s)} className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded">Edit</button>
-        <button onClick={() => handleRefresh(s)} className="px-2 py-1 text-xs text-green-600 hover:bg-green-50 rounded">Refresh tools</button>
+        <button onClick={() => handleRefresh(s)} className="px-2 py-1 text-xs text-green-600 hover:bg-green-50 rounded">Refresh functions</button>
         <button onClick={() => handleDelete(s)} className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded">Delete</button>
       </td>
     </tr>
@@ -406,7 +406,7 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
                         <th className="px-3 py-2 text-left">Name</th>
                         <th className="px-3 py-2 text-left">Scope</th>
                         <th className="px-3 py-2 text-left">URL</th>
-                        <th className="px-3 py-2 text-center">Tools</th>
+                        <th className="px-3 py-2 text-center">Functions</th>
                         <th className="px-3 py-2 text-left">Enabled</th>
                         <th className="px-3 py-2 text-right">Actions</th>
                       </tr>
@@ -454,7 +454,7 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
                         <th className="px-3 py-2 text-left">Name</th>
                         <th className="px-3 py-2 text-left">User</th>
                         <th className="px-3 py-2 text-left">URL</th>
-                        <th className="px-3 py-2 text-center">Tools</th>
+                        <th className="px-3 py-2 text-center">Functions</th>
                         <th className="px-3 py-2 text-left">Enabled</th>
                         <th className="px-3 py-2 text-right">Actions</th>
                       </tr>

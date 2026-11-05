@@ -120,7 +120,7 @@ export function UserMcpServersPanel({ userId }: Props) {
                             <tr>
                                 <th className="px-3 py-2 text-left">Name</th>
                                 <th className="px-3 py-2 text-left">Scope</th>
-                                <th className="px-3 py-2 text-center">Tools</th>
+                                <th className="px-3 py-2 text-center">Functions</th>
                                 <th className="px-3 py-2 text-left">Available to user</th>
                                 <th className="px-3 py-2 text-left">Status</th>
                             </tr>
