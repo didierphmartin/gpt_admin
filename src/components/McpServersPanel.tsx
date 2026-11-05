@@ -10,6 +10,7 @@ import {
 } from '../api/client';
 import { useUsers } from '../hooks/useUsers';
 import type { User } from '../types';
+import { McpTestModal } from './McpTestModal';
 import { usePagedSearch, SearchBox, PaginationFooter } from './TableControls';
 
 interface FormState {
@@ -193,6 +194,7 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [formInitial, setFormInitial] = useState<FormState>(EMPTY_FORM);
+  const [testServer, setTestServer] = useState<McpServer | null>(null);
   const isUserLocked = userId !== undefined;
 
   const load = useCallback(async () => {
@@ -343,6 +345,7 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
         </label>
       </td>
       <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
+        <button onClick={() => setTestServer(s)} title="Test" aria-label="Test" className="px-2 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded">🧪</button>
         <button onClick={() => startEdit(s)} className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded">Edit</button>
         <button onClick={() => handleRefresh(s)} className="px-2 py-1 text-xs text-green-600 hover:bg-green-50 rounded">Refresh tools</button>
         <button onClick={() => handleDelete(s)} className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded">Delete</button>
@@ -491,6 +494,8 @@ export function McpServersPanel({ userId }: McpServersPanelProps = {}) {
           onCancel={() => setShowForm(false)}
         />
       )}
+
+      {testServer && <McpTestModal server={testServer} onClose={() => setTestServer(null)} />}
     </div>
   );
 }

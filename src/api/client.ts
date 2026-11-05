@@ -385,6 +385,29 @@ export async function refreshMcpServerTools(serverId: number) {
   );
 }
 
+export interface McpTestRelay {
+  url?: string;
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string;
+  messages?: unknown[];
+  duration_ms?: number;
+  error?: string | null;
+}
+
+export async function testMcpServer(body: {
+  server_id: number;
+  message: unknown;
+  protocol_version: string | null;
+  session_id?: string | null;
+  sibling?: boolean;
+}) {
+  return request<{ success: boolean; relay?: McpTestRelay; error?: string }>(`${API_BASE}/mcp/test`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function deleteMcpServer(serverId: number) {
   return request<{ success: boolean; message: string }>(`${API_BASE}/mcp/servers/${serverId}`, {
     method: 'DELETE',
