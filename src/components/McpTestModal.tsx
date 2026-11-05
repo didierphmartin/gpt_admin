@@ -31,7 +31,7 @@ interface McpProtocolTestApi {
 
 declare global {
   interface Window {
-    McpProtocolTest: McpProtocolTestApi;
+    McpProtocolTest?: McpProtocolTestApi;
     MCPProtocolValidator: unknown;
   }
 }
@@ -42,7 +42,9 @@ const fmt = (t: string, o: Record<string, string | undefined>) =>
 export function McpTestModal({ server, onClose }: { server: McpServer; onClose: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [registry, setRegistry] = useState<RegistryResult | null>(null);
-  const labels = window.McpProtocolTest.DEFAULT_LABELS;
+  // The protocol test scripts load from public/; a failed load must not crash the page.
+  const api = window.McpProtocolTest;
+  const labels = api?.DEFAULT_LABELS ?? {};
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -54,8 +56,8 @@ export function McpTestModal({ server, onClose }: { server: McpServer; onClose: 
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host) return;
     const api = window.McpProtocolTest;
+    if (!host || !api) return;
     const view = api.mount(host, {
       transport: 'http',
       url: server.url,
@@ -89,6 +91,32 @@ export function McpTestModal({ server, onClose }: { server: McpServer; onClose: 
     });
     return () => view.destroy();
   }, [server]);
+
+  const closeButton = (
+    <button
+      onClick={onClose}
+      aria-label="Close"
+      className="px-2 py-1 text-gray-500 hover:bg-gray-100 rounded"
+    >
+      ✕
+    </button>
+  );
+
+  if (!api) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800">Test: {server.name}</h3>
+              <p className="text-sm mt-2 text-gray-600">Protocol test unavailable (scripts did not load).</p>
+            </div>
+            {closeButton}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   let registryLine: React.ReactNode = labels.registryNotTested;
   let registryClass = 'text-gray-500';
@@ -128,13 +156,7 @@ export function McpTestModal({ server, onClose }: { server: McpServer; onClose: 
             <h3 className="text-lg font-semibold text-gray-800">Test: {server.name}</h3>
             <p className={`text-xs mt-1 ${registryClass}`}>{registryLine}</p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="px-2 py-1 text-gray-500 hover:bg-gray-100 rounded"
-          >
-            ✕
-          </button>
+          {closeButton}
         </div>
         <div ref={hostRef} />
       </div>
