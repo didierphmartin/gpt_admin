@@ -93,6 +93,8 @@ export function PackagesPanel() {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState('');
   const [deleteArmed, setDeleteArmed] = useState(false);
+  // A role tab clicked while the draft has unsaved changes: the next click on it discards them.
+  const [discardArmed, setDiscardArmed] = useState<UserRole | null>(null);
   const [roleBusy, setRoleBusy] = useState(false);
   const [roleError, setRoleError] = useState<string | null>(null);
 
@@ -146,7 +148,16 @@ export function PackagesPanel() {
     setSavedAt(null);
   }, [activeRole]);
 
+  // Unsaved = the draft differs from the stored package (both normalised by cloneCaps).
+  const dirty = !!draft && !!currentPkg
+    && JSON.stringify(draft) !== JSON.stringify(cloneCaps(currentPkg.capabilities));
+
   const selectRole = (role: UserRole) => {
+    if (dirty && role !== activeRole && discardArmed !== role) {
+      setDiscardArmed(role);
+      return;
+    }
+    setDiscardArmed(null);
     setActiveRole(role);
     setRenaming(false);
     setDeleteArmed(false);
@@ -306,6 +317,12 @@ export function PackagesPanel() {
           )}
         </nav>
       </div>
+      {dirty && discardArmed && (
+        <div className="p-3 text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-md">
+          {activeInfo?.name ?? activeRole} has unsaved changes. Save them, or click{' '}
+          <strong>{roleTabs.find((r) => r.role === discardArmed)?.name ?? discardArmed}</strong> again to discard them.
+        </div>
+      )}
 
       {creating && (
         <NewRoleForm
@@ -407,6 +424,10 @@ export function PackagesPanel() {
       {draft && currentPkg && (
         <div className="flex items-center justify-between border-t border-gray-200 pt-4">
           <div className="text-xs text-gray-500">
+            <span className="mr-3 text-sm font-medium text-gray-800">
+              Role: {activeInfo?.name ?? activeRole}
+            </span>
+            {dirty && <span className="mr-3 text-amber-700">● Unsaved changes</span>}
             {currentPkg.updated_at && (
               <>Last saved: {currentPkg.updated_at}</>
             )}

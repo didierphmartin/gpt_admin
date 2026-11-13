@@ -631,7 +631,7 @@ export function LLMSettingsPanel() {
   const { protocols, byId } = useDecisionProtocols();
   const [addKind, setAddKind] = useState<null | 'choose' | 'llm' | 'decision'>(null);
   const [seeding, setSeeding] = useState(false);
-  // Router rows are decision providers: same grid, after the chat providers.
+  // Router rows are decision providers: their own section, below the chat providers.
   const chatProviders = providers.filter((p) => !isRouterRow(p));
   const routerProviders = providers.filter(isRouterRow);
   // The first enabled decision row (sort_order, then key) is the default provider.
@@ -731,29 +731,40 @@ export function LLMSettingsPanel() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {chatProviders.map((provider) => (
-            <ProviderCard
-              key={provider.provider_key}
-              provider={provider}
-              onEdit={handleEdit}
-              onToggle={toggleProvider}
-              onDelete={deleteProvider}
-            />
-          ))}
-          {routerProviders.map((provider) => (
-            <ProviderCard
-              key={provider.provider_key}
-              provider={provider}
-              decision
-              protocolUrl={byId[provider.protocol ?? '']?.url}
-              protocolUnset={protocols.length > 0 && !byId[provider.protocol ?? '']}
-              onEdit={handleEdit}
-              onToggle={toggleProvider}
-              onDelete={deleteProvider}
-            />
-          ))}
-        </div>
+        <>
+          <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">LLM models</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {chatProviders.map((provider) => (
+              <ProviderCard
+                key={provider.provider_key}
+                provider={provider}
+                onEdit={handleEdit}
+                onToggle={toggleProvider}
+                onDelete={deleteProvider}
+              />
+            ))}
+          </div>
+          {routerProviders.length > 0 && (
+            <>
+              <hr className="my-8 border-gray-300" />
+              <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Decision models</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {routerProviders.map((provider) => (
+                  <ProviderCard
+                    key={provider.provider_key}
+                    provider={provider}
+                    decision
+                    protocolUrl={byId[provider.protocol ?? '']?.url}
+                    protocolUnset={protocols.length > 0 && !byId[provider.protocol ?? '']}
+                    onEdit={handleEdit}
+                    onToggle={toggleProvider}
+                    onDelete={deleteProvider}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
       )}
 
       {addKind === 'decision' && (
