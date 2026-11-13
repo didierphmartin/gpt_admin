@@ -26,3 +26,6 @@ dist-ssr
 *.sw?
 
 .claude/settings.local.json
+
+# Internal design notes and plans: kept on disk, not published
+docs/superpowers/
